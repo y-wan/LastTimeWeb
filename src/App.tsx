@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { addOccurrence, createEvent, db, deleteEvent, deleteOccurrence, importRecords, updateEvent, updateOccurrence } from './db'
+import { addOccurrence, createEvent, db, deleteEvent, deleteOccurrence, importRecords, tombstoneAllData, updateEvent, updateOccurrence } from './db'
 import { exportCsv, importCsv } from './csv'
 import { averageInterval, formatDuration, formatElapsed, formatInterval, formatSyncDateTime, formatSyncTime, historyGroup, toLocalInputValue } from './date'
 import { accountIdentity } from './auth'
 import { accessibleForeground } from './colorContrast'
+import { canClearAllData, clearAllDataWorkflow, CloudDeletionPendingError } from './clearData'
 import { EVENT_COLORS } from './eventOptions'
 import { iconCatalogue, iconLabel } from './iconCatalogue'
 import { EventIcon, MaterialIcon, type MaterialIconName } from './icons'
@@ -12,21 +13,24 @@ import { translator } from './i18n'
 import { currentAccount, isSyncConfigured, signIn, signOut, subscribeAuth, synchronize, type AuthSnapshot } from './onedrive'
 import { activatePwaUpdate } from './pwaUpdate'
 import { currentAccountLastSync, syncMetaKey, syncPresentation, type SyncPresentation } from './syncStatus'
+import { paletteCssVariables, resolvedPaletteRoles, THEME_PALETTES } from './themePalettes'
 import type { ColorTheme, EventRecord, Locale, OccurrenceRecord, SyncState, ThemeMode } from './types'
 import { updateStore, type UpdateSnapshot } from './updateStore'
 
-const PALETTES: Array<{ id: ColorTheme; primary: string; secondary: string; background: string; surface: string; darkSurface: string }> = [
-  { id: 'vitalOrange', primary: '#E86F51', secondary: '#238C82', background: '#FFF8F3', surface: '#FFFDFC', darkSurface: '#252220' },
-  { id: 'mistBlue', primary: '#587DB7', secondary: '#4F8997', background: '#F7F9FC', surface: '#F7F9FC', darkSurface: '#171B22' },
-  { id: 'sage', primary: '#6F8D68', secondary: '#B46F56', background: '#FAF8F1', surface: '#FAF8F1', darkSurface: '#1B1D18' },
-  { id: 'softPurple', primary: '#8067A8', secondary: '#B2738A', background: '#FAF7FC', surface: '#FAF7FC', darkSurface: '#1D1922' },
-  { id: 'quietGray', primary: '#586A70', secondary: '#708A82', background: '#F7F6F3', surface: '#F7F6F3', darkSurface: '#191B1B' }
-]
 const EMPTY_EVENTS: EventRecord[] = []
 const EMPTY_OCCURRENCES: OccurrenceRecord[] = []
 
 type EventDraft = Pick<EventRecord, 'name' | 'note' | 'icon' | 'color'>
 const emptyDraft: EventDraft = { name: '', note: '', icon: 'event', color: EVENT_COLORS[0] }
+
+export function PalettePreview({ roles }: { roles: ReturnType<typeof resolvedPaletteRoles> }) {
+  return <span className="palette-preview" style={{ background: roles.background }}>
+    <i className="preview-surface" style={{ background: roles.surfaceHigh, borderColor: roles.outline }} />
+    <i className="preview-primary" style={{ background: roles.primary }} />
+    <i className="preview-secondary" style={{ background: roles.secondary }} />
+    <i className="preview-tertiary" style={{ background: roles.tertiary }} />
+  </span>
+}
 
 function useSync(accountId?: string) {
   const [state, setState] = useState<SyncState>(navigator.onLine ? 'idle' : 'offline')
@@ -34,10 +38,18 @@ function useSync(accountId?: string) {
   const [lastSuccessfulSync, setLastSuccessfulSync] = useState<{ accountId: string; completedAt: string }>()
   const timer = useRef<number | undefined>(undefined)
 
-  const run = useCallback(async () => {
-    if (!navigator.onLine) { setState('offline'); return }
+  const execute = useCallback(async (propagateError: boolean) => {
+    if (!navigator.onLine) {
+      setState('offline')
+      if (propagateError) throw new Error('Offline')
+      return
+    }
     try {
-      if (!isSyncConfigured() || !(await currentAccount())) { setState('idle'); return }
+      if (!isSyncConfigured() || !(await currentAccount())) {
+        setState('idle')
+        if (propagateError) throw new Error('Microsoft sign-in is required')
+        return
+      }
       setState('syncing')
       setError('')
       const completedAt = await synchronize()
@@ -46,8 +58,11 @@ function useSync(accountId?: string) {
     } catch (cause) {
       setState(navigator.onLine ? 'error' : 'offline')
       setError(cause instanceof Error ? cause.message : String(cause))
+      if (propagateError) throw cause
     }
   }, [])
+  const run = useCallback(() => execute(false), [execute])
+  const runOrThrow = useCallback(() => execute(true), [execute])
 
   useEffect(() => {
     setError('')
@@ -76,12 +91,73 @@ function useSync(accountId?: string) {
     }
   }, [run])
 
-  return { state, error, lastSuccessfulSync, run, schedule }
+  return { state, error, lastSuccessfulSync, run, runOrThrow, schedule }
 }
 
-export function EventForm({ initial, locale, t, onSave, onClose, onDirtyChange }: {
+export function ConfirmationDialog({ title, body, safeLabel, destructiveLabel, destructiveDisabled = false, busy = false, children, onCancel, onConfirm }: {
+  title: string
+  body: string
+  safeLabel: string
+  destructiveLabel: string
+  destructiveDisabled?: boolean
+  busy?: boolean
+  children?: React.ReactNode
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  return <div className="modal-backdrop">
+    <section className="sheet confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="confirmation-title">
+      <h2 id="confirmation-title">{title}</h2>
+      <p>{body}</p>
+      {children}
+      <div className="dialog-actions">
+        <button className="secondary" disabled={busy} onClick={onCancel}>{safeLabel}</button>
+        <button className="danger-button" disabled={busy || destructiveDisabled} onClick={onConfirm}>{destructiveLabel}</button>
+      </div>
+    </section>
+  </div>
+}
+
+export function ClearDataDialog({ locale, stage, clearing, t, onStage, onCancel, onConfirm }: {
+  locale: Locale
+  stage: 'scope' | 'confirm'
+  clearing: boolean
+  t: ReturnType<typeof translator>
+  onStage: (stage: 'scope' | 'confirm') => void
+  onCancel: () => void
+  onConfirm: () => Promise<void>
+}) {
+  const [confirmation, setConfirmation] = useState('')
+  const confirmationWord = locale === 'zh-CN' ? '清空' : 'DELETE'
+  return stage === 'scope'
+    ? <ConfirmationDialog
+      title={t('clearAllData')}
+      body={t('clearDataScope')}
+      safeLabel={t('keepData')}
+      destructiveLabel={t('continueClear')}
+      busy={clearing}
+      onCancel={onCancel}
+      onConfirm={() => onStage('confirm')}
+    />
+    : <ConfirmationDialog
+      title={t('confirmClearTitle')}
+      body={t('clearConfirmationInstruction')}
+      safeLabel={t('keepData')}
+      destructiveLabel={clearing ? t('clearingData') : t('clearAllData')}
+      destructiveDisabled={confirmation !== confirmationWord}
+      busy={clearing}
+      onCancel={onCancel}
+      onConfirm={() => void onConfirm()}
+    >
+      <strong className="confirmation-word">{confirmationWord}</strong>
+        <input autoFocus aria-label={t('clearConfirmationLabel')} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} />
+    </ConfirmationDialog>
+}
+
+export function EventForm({ initial, locale, surfaceColor, t, onSave, onClose, onDirtyChange }: {
   initial?: EventRecord
   locale: Locale
+  surfaceColor: string
   t: ReturnType<typeof translator>
   onSave: (draft: EventDraft) => Promise<void>
   onClose: () => void
@@ -91,10 +167,15 @@ export function EventForm({ initial, locale, t, onSave, onClose, onDirtyChange }
     ? { name: initial.name, note: initial.note, icon: initial.icon, color: initial.color }
     : emptyDraft
   const [draft, setDraft] = useState<EventDraft>(original)
+  const selectableColors = EVENT_COLORS.includes(draft.color as typeof EVENT_COLORS[number])
+    ? EVENT_COLORS
+    : [draft.color, ...EVENT_COLORS]
+  const previewStyle = {
+    '--event-color': draft.color,
+    '--event-foreground': accessibleForeground(draft.color, surfaceColor)
+  } as CSSProperties
   const dirty = JSON.stringify(draft) !== JSON.stringify(original)
-  const requestClose = () => {
-    if (!dirty || window.confirm(t('discardChanges'))) onClose()
-  }
+  const requestClose = onClose
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => {
       if (!dirty) return
@@ -120,13 +201,26 @@ export function EventForm({ initial, locale, t, onSave, onClose, onDirtyChange }
           <h2>{initial ? t('edit') : t('addEvent')}</h2>
           <button className="text-button" disabled={!draft.name.trim()}>{t('saveEvent')}</button>
         </div>
+        <section className="event-preview" style={previewStyle} aria-label={t('eventPreview')}>
+          <span><EventIcon name={draft.icon} size={30} /></span>
+          <div><small>{t('eventPreview')}</small><strong>{draft.name.trim() || t('previewPlaceholder')}</strong></div>
+        </section>
         <label>{t('name')}<input autoFocus required maxLength={80} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
         <label>{t('note')} <span className="muted">{t('optional')}</span><textarea maxLength={500} value={draft.note} onChange={(event) => setDraft({ ...draft, note: event.target.value })} /></label>
         <fieldset><legend>{t('chooseIcon')}</legend><div className="icon-grid">
           {iconCatalogue.map((icon) => <button aria-label={iconLabel(icon, locale)} className={draft.icon === icon ? 'selected' : ''} type="button" key={icon} onClick={() => setDraft({ ...draft, icon })}><EventIcon name={icon} size={30} /><span>{iconLabel(icon, locale)}</span></button>)}
         </div></fieldset>
         <fieldset><legend>{t('chooseColor')}</legend><div className="color-grid">
-          {EVENT_COLORS.map((color) => <button aria-label={color} className={draft.color === color ? 'selected' : ''} style={{ background: color }} type="button" key={color} onClick={() => setDraft({ ...draft, color })}>{draft.color === color && <MaterialIcon name="check" size={20} />}</button>)}
+          {selectableColors.map((color) => {
+            const style = {
+              '--swatch-color': color,
+              '--swatch-foreground': accessibleForeground(color, surfaceColor)
+            } as CSSProperties
+            return <button aria-label={color} aria-pressed={draft.color === color} className={draft.color === color ? 'selected' : ''} style={style} type="button" key={color} onClick={() => setDraft({ ...draft, color })}>
+              <span className="color-icon"><EventIcon name={draft.icon} size={22} /></span>
+              {draft.color === color && <span className="color-selected"><MaterialIcon name="check" size={12} /></span>}
+            </button>
+          })}
         </div></fieldset>
       </form>
     </div>
@@ -165,7 +259,7 @@ function OccurrenceEditor({ occurrence, t, onSave, onClose }: {
   )
 }
 
-export function EventDetail({ event, occurrences, locale, surfaceColor, t, onClose, onMutate, onEditEvent, onMarkNow }: {
+export function EventDetail({ event, occurrences, locale, surfaceColor, t, onClose, onMutate, onEditEvent, onMarkNow, onRequestDeleteEvent, onRequestDeleteOccurrence }: {
   event: EventRecord
   occurrences: OccurrenceRecord[]
   locale: Locale
@@ -175,6 +269,8 @@ export function EventDetail({ event, occurrences, locale, surfaceColor, t, onClo
   onMutate: () => void
   onEditEvent: () => void
   onMarkNow?: (eventId: string) => Promise<void>
+  onRequestDeleteEvent: () => void
+  onRequestDeleteOccurrence: (occurrenceId: string) => void
 }) {
   const [editing, setEditing] = useState<OccurrenceRecord | null | 'new'>(null)
   const history = occurrences.filter((item) => item.eventId === event.id && !item.deletedAt).sort((a, b) => b.occurredAt.localeCompare(a.occurredAt))
@@ -188,9 +284,7 @@ export function EventDetail({ event, occurrences, locale, surfaceColor, t, onClo
           <h2>{event.name}</h2>
           <div>
             <button className="icon-button" aria-label={t('edit')} onClick={onEditEvent}><MaterialIcon name="edit" size={20} /></button>
-            <button className="icon-button danger-icon" aria-label={t('delete')} onClick={async () => {
-              if (window.confirm(t('confirmDeleteEvent'))) { await deleteEvent(event.id); onMutate(); onClose() }
-            }}><MaterialIcon name="delete" size={20} /></button>
+            <button className="icon-button danger-icon" aria-label={t('delete')} onClick={onRequestDeleteEvent}><MaterialIcon name="delete" size={20} /></button>
           </div>
         </div>
         <div className="detail-event-icon" style={{
@@ -219,9 +313,7 @@ export function EventDetail({ event, occurrences, locale, surfaceColor, t, onClo
               {history[index + 1] && <small>{t('sincePrevious')}: {formatInterval(history[index + 1].occurredAt, item.occurredAt, locale)}</small>}
               {item.note && <span>{item.note}</span>}
             </button>
-            <button className="icon-button danger-icon" aria-label={t('deleteRecord')} onClick={async () => {
-              if (window.confirm(t('confirmDeleteOccurrence'))) { await deleteOccurrence(item.id); onMutate() }
-            }}><MaterialIcon name="delete" size={18} /></button>
+            <button className="icon-button danger-icon" aria-label={t('deleteRecord')} onClick={() => onRequestDeleteOccurrence(item.id)}><MaterialIcon name="delete" size={18} /></button>
           </article>)}
         </div>
       </section>
@@ -253,6 +345,16 @@ export default function App() {
   const [update, setUpdate] = useState<UpdateSnapshot>({ available: false, applying: false })
   const [updateDismissed, setUpdateDismissed] = useState(false)
   const [editorDirty, setEditorDirty] = useState(false)
+  const [clearStage, setClearStage] = useState<'scope' | 'confirm' | null>(null)
+  const [clearingData, setClearingData] = useState(false)
+  const [clearNotice, setClearNotice] = useState('')
+  const [confirmation, setConfirmation] = useState<
+    { kind: 'discard' } |
+    { kind: 'deleteEvent'; eventId: string } |
+    { kind: 'deleteOccurrence'; occurrenceId: string } |
+    null
+  >(null)
+  const [confirming, setConfirming] = useState(false)
   const overlayHistoryActive = useRef(false)
   const allowOverlayClose = useRef(false)
   const t = useMemo(() => translator(locale), [locale])
@@ -274,9 +376,13 @@ export default function App() {
     document.documentElement.dataset.theme = theme
     document.documentElement.dataset.palette = colorTheme
     document.documentElement.lang = locale
-    const palette = PALETTES.find((item) => item.id === colorTheme) ?? PALETTES[0]
-    document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute('content', palette.primary)
-  }, [colorTheme, theme, locale])
+    const roles = resolvedPaletteRoles(colorTheme, theme, systemDark)
+    for (const [property, value] of Object.entries(paletteCssVariables(roles))) {
+      document.documentElement.style.setProperty(property, value)
+    }
+    document.documentElement.style.colorScheme = theme === 'system' ? 'light dark' : theme
+    document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute('content', roles.background)
+  }, [colorTheme, theme, locale, systemDark])
   useEffect(() => subscribeAuth(setAuth), [])
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)')
@@ -298,8 +404,9 @@ export default function App() {
   useEffect(() => {
     const onPopState = () => {
       if (!overlayHistoryActive.current) return
-      if (!allowOverlayClose.current && editorDirty && !window.confirm(t('discardChanges'))) {
+      if (!allowOverlayClose.current && editorDirty) {
         window.history.pushState({ lastTimeOverlay: true }, '')
+        setConfirmation({ kind: 'discard' })
         return
       }
       allowOverlayClose.current = false
@@ -332,8 +439,8 @@ export default function App() {
   const filtered = events.filter((event) => `${event.name} ${event.note}`.toLowerCase().includes(query.toLowerCase()))
   const sorted = [...filtered].sort((a, b) => (latestByEvent.get(b.id)?.occurredAt ?? '').localeCompare(latestByEvent.get(a.id)?.occurredAt ?? ''))
   const detailEvent = events.find((event) => event.id === detailId)
-  const activePalette = PALETTES.find((palette) => palette.id === colorTheme) ?? PALETTES[0]
-  const surfaceColor = theme === 'dark' || (theme === 'system' && systemDark) ? activePalette.darkSurface : activePalette.surface
+  const surfaceColor = resolvedPaletteRoles(colorTheme, theme, systemDark).surface
+  const previewDark = theme === 'dark' || (theme === 'system' && systemDark)
   const identity = auth.account ? accountIdentity(auth.account) : undefined
   const updateMessage = update.errorKind === 'timeout'
     ? t('updateTimeout')
@@ -356,6 +463,10 @@ export default function App() {
       setEditingEvent(null)
       setDetailId(null)
     }
+  }
+  const requestEditorClose = () => {
+    if (editorDirty) setConfirmation({ kind: 'discard' })
+    else closeOverlay()
   }
 
   const persistSettings = async (nextLocale: Locale, nextTheme: ThemeMode, nextColorTheme: ColorTheme) => {
@@ -384,6 +495,42 @@ export default function App() {
     group,
     events: sorted.filter((event) => historyGroup(latestByEvent.get(event.id)?.occurredAt) === group)
   }))
+  const hasActiveData = events.length > 0 || occurrences.length > 0
+  const clearEnabled = canClearAllData({
+    authReady: auth.ready,
+    signedIn: Boolean(auth.account),
+    online: navigator.onLine,
+    hasData: hasActiveData,
+    clearing: clearingData
+  })
+  const clearDisabledReason = !auth.ready
+    ? t('checkingAccount')
+    : !auth.account
+      ? t('clearRequiresSignIn')
+      : !navigator.onLine
+        ? t('clearRequiresOnline')
+        : !hasActiveData
+          ? t('clearNoData')
+          : ''
+
+  const confirmClearAllData = async () => {
+    if (!clearEnabled) return
+    setClearingData(true)
+    setClearNotice('')
+    try {
+      await clearAllDataWorkflow(sync.runOrThrow, tombstoneAllData)
+      setClearStage(null)
+      setNotice(t('clearSucceeded'))
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      setClearNotice(error instanceof CloudDeletionPendingError
+        ? `${t('clearCloudPending')} ${detail}`
+        : `${t('clearPreSyncFailed')} ${detail}`)
+      setClearStage(null)
+    } finally {
+      setClearingData(false)
+    }
+  }
 
   return (
     <div className="app-shell">
@@ -426,10 +573,13 @@ export default function App() {
         {tab === 'settings' && <div className="settings-page">
           <section className="settings-card"><h2>{t('language')}</h2><div className="segmented"><button className={locale === 'en' ? 'active' : ''} onClick={() => void persistSettings('en', theme, colorTheme)}>English</button><button className={locale === 'zh-CN' ? 'active' : ''} onClick={() => void persistSettings('zh-CN', theme, colorTheme)}>简体中文</button></div></section>
           <section className="settings-card"><h2>{t('appearance')}</h2><div className="segmented">{(['system', 'light', 'dark'] as ThemeMode[]).map((value) => <button className={theme === value ? 'active' : ''} key={value} onClick={() => void persistSettings(locale, value, colorTheme)}>{t(value)}</button>)}</div></section>
-          <section className="settings-card palette-section"><h2>{t('colorTheme')}</h2><div className="palette-list">{PALETTES.map((palette) => <button className={`palette-card ${colorTheme === palette.id ? 'selected' : ''}`} key={palette.id} onClick={() => void persistSettings(locale, theme, palette.id)}>
-            <span className="palette-preview" style={{ background: palette.background }}><i style={{ background: palette.surface }} /><i style={{ background: palette.primary }} /><i style={{ background: palette.secondary }} /></span>
+          <section className="settings-card palette-section"><h2>{t('colorTheme')}</h2><div className="palette-list">{THEME_PALETTES.map((palette) => {
+            const roles = previewDark ? palette.dark : palette.light
+            return <button className={`palette-card ${colorTheme === palette.id ? 'selected' : ''}`} data-palette-preview={palette.id} key={palette.id} onClick={() => void persistSettings(locale, theme, palette.id)}>
+            <PalettePreview roles={roles} />
             <span>{t(palette.id)}</span>{colorTheme === palette.id && <MaterialIcon name="check" size={18} />}
-          </button>)}</div></section>
+          </button>
+          })}</div></section>
           <section className="settings-card"><h2>{t('sync')}</h2>
             {!isSyncConfigured() ? <p className="warning">{t('clientIdMissing')}</p> : !auth.ready ? <p>{t('checkingAccount')}</p> : auth.account ? <>
               <p className="connected">{t('signedIn')}<strong>{identity?.primary}</strong>{identity?.secondary && <small>{identity.secondary}</small>}<small>{syncStatusLabel(syncStatus, t)}</small><small>{lastSuccessfulSyncAt ? `${t('lastSynced')}: ${formatSyncDateTime(lastSuccessfulSyncAt, locale)}` : t('neverSynced')}</small></p>
@@ -451,19 +601,47 @@ export default function App() {
               const anchor = document.createElement('a'); anchor.href = url; anchor.download = `last-time-${new Date().toISOString().slice(0, 10)}.csv`; anchor.click()
               URL.revokeObjectURL(url)
             }}><span><MaterialIcon name="download" size={22} /></span><div><strong>{t('export')}</strong><small>{t('exportHint')}</small></div></button>
-          </div>{notice && <p className="success-message">{notice}</p>}</section>
+          </div>{notice && <p className="success-message">{notice}</p>}
+            <div className="danger-zone">
+              <h3>{t('dangerZone')}</h3>
+              <p>{t('clearDataSummary')}</p>
+              <button className="danger-button wide" disabled={!clearEnabled} onClick={() => { setClearNotice(''); setClearStage('scope') }}>{t('clearAllData')}</button>
+              {clearDisabledReason && <small>{clearDisabledReason}</small>}
+              {clearNotice && <p className="error-message">{clearNotice}</p>}
+            </div>
+          </section>
         </div>}
       </main>}
       {!overlayOpen && <nav>
         <button className={tab === 'events' ? 'active' : ''} onClick={() => setTab('events')}><EventIcon name="clock" /><span>{t('events')}</span></button>
         <button className={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}><MaterialIcon name="settings" /><span>{t('settings')}</span></button>
       </nav>}
-      {editingEvent && <EventForm initial={editingEvent === 'new' ? undefined : editingEvent} locale={locale} t={t} onDirtyChange={setEditorDirty} onClose={closeOverlay} onSave={async (draft) => {
+      {editingEvent && <EventForm initial={editingEvent === 'new' ? undefined : editingEvent} locale={locale} surfaceColor={surfaceColor} t={t} onDirtyChange={setEditorDirty} onClose={requestEditorClose} onSave={async (draft) => {
         if (editingEvent === 'new') await createEvent(draft)
         else await updateEvent(editingEvent.id, draft)
         mutate(); closeOverlay()
       }} />}
-      {detailEvent && <EventDetail event={detailEvent} occurrences={occurrences} locale={locale} surfaceColor={surfaceColor} t={t} onClose={closeOverlay} onMutate={mutate} onMarkNow={markNow} onEditEvent={() => { setDetailId(null); setEditingEvent(detailEvent) }} />}
+      {detailEvent && <EventDetail event={detailEvent} occurrences={occurrences} locale={locale} surfaceColor={surfaceColor} t={t} onClose={closeOverlay} onMutate={mutate} onMarkNow={markNow} onEditEvent={() => { setDetailId(null); setEditingEvent(detailEvent) }} onRequestDeleteEvent={() => setConfirmation({ kind: 'deleteEvent', eventId: detailEvent.id })} onRequestDeleteOccurrence={(occurrenceId) => setConfirmation({ kind: 'deleteOccurrence', occurrenceId })} />}
+      {clearStage && <ClearDataDialog locale={locale} stage={clearStage} clearing={clearingData} t={t} onStage={setClearStage} onCancel={() => { if (!clearingData) setClearStage(null) }} onConfirm={confirmClearAllData} />}
+      {confirmation && <ConfirmationDialog
+        title={t(confirmation.kind === 'discard' ? 'discardTitle' : confirmation.kind === 'deleteEvent' ? 'deleteEventTitle' : 'deleteRecordTitle')}
+        body={t(confirmation.kind === 'discard' ? 'discardBody' : confirmation.kind === 'deleteEvent' ? 'deleteEventBody' : 'deleteRecordBody')}
+        safeLabel={t(confirmation.kind === 'discard' ? 'keepEditing' : confirmation.kind === 'deleteEvent' ? 'keepItem' : 'keepRecord')}
+        destructiveLabel={t(confirmation.kind === 'discard' ? 'discardAction' : confirmation.kind === 'deleteEvent' ? 'deleteItemAction' : 'deleteRecordAction')}
+        busy={confirming}
+        onCancel={() => setConfirmation(null)}
+        onConfirm={() => void (async () => {
+          setConfirming(true)
+          try {
+            if (confirmation.kind === 'discard') closeOverlay()
+            else if (confirmation.kind === 'deleteEvent') { await deleteEvent(confirmation.eventId); mutate(); closeOverlay() }
+            else { await deleteOccurrence(confirmation.occurrenceId); mutate() }
+            setConfirmation(null)
+          } finally {
+            setConfirming(false)
+          }
+        })()}
+      />}
       {(update.available || update.error) && !updateDismissed && <div className="update-banner">
         <span>{updateMessage}</span>
         <div><button className="secondary" disabled={update.applying} onClick={() => setUpdateDismissed(true)}>{t('later')}</button>{update.available && <button className="primary" disabled={update.applying} onClick={() => void activatePwaUpdate()}>{update.applying ? t('updating') : t('updateNow')}</button>}</div>

@@ -26,6 +26,15 @@ describe('sync merge', () => {
     expect(mergeRecords([deleted], [live])[0].deletedAt).toBeTruthy()
   })
 
+  it('keeps a newer clear-all tombstone over an older active remote record', () => {
+    const tombstone = event('2026-09-19T06:00:00.000Z', 'cleared', '2026-09-19T06:00:00.000Z')
+    const staleRemote = event('2026-09-19T05:59:59.000Z', 'stale remote')
+    expect(mergeRecords([tombstone], [staleRemote])[0]).toMatchObject({
+      updatedAt: '2026-09-19T06:00:00.000Z',
+      deletedAt: '2026-09-19T06:00:00.000Z'
+    })
+  })
+
   it('canonicalizes property order before equal-time tie-breaking', () => {
     const left = { id: '1', nested: { beta: 2, alpha: 1 }, name: 'same' }
     const right = { name: 'same', nested: { alpha: 1, beta: 2 }, id: '1' }

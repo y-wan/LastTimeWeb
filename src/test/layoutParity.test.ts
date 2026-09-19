@@ -19,5 +19,7 @@ describe('Android layout parity guards', () => {
   it('uses opaque full-viewport detail and editor screens', () => {
     expect(css).toMatch(/\.screen-overlay\s*\{[^}]*inset:\s*0[^}]*background:\s*var\(--bg\)/s)
     expect(css).toMatch(/\.screen-sheet\s*\{[^}]*height:\s*100dvh/s)
+    expect(css).not.toMatch(/backdrop-filter/)
+    expect(css).toMatch(/\.editor-header,\s*\.detail-header\s*\{[^}]*background:\s*var\(--surface\)[^}]*border-bottom:/s)
   })
 })

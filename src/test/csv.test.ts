@@ -29,9 +29,49 @@ describe('CSV portability', () => {
     vi.unstubAllGlobals()
   })
 
-  it('imports the iOS Event, Note, Date, Time, Timestamp shape', () => {
-    const imported = importCsv('Event,Note,Date,Time,Timestamp\nHaircut,Short,,,1767225600', new Date('2026-12-01T00:00:00.000Z'))
-    expect(imported.events[0]).toMatchObject({ name: 'Haircut', note: 'Short' })
-    expect(imported.occurrences[0].occurredAt).toBe('2026-01-01T00:00:00.000Z')
+  it('groups legacy iOS rows by trimmed event name and assigns generic Note to occurrences', () => {
+    vi.stubGlobal('crypto', {
+      randomUUID: vi.fn()
+        .mockReturnValueOnce('event-new')
+        .mockReturnValueOnce('occ-one')
+        .mockReturnValueOnce('occ-two')
+    })
+    const imported = importCsv([
+      'Event,Note,Date,Time,Timestamp,icon,color',
+      ' Synthetic routine ,First occurrence,,,1767225600,cleaning,#FF238C82',
+      'Synthetic routine,Second occurrence,,,1767312000,cleaning,#FF238C82'
+    ].join('\n'), new Date('2026-12-01T00:00:00.000Z'))
+    expect(imported.events).toHaveLength(1)
+    expect(imported.events[0]).toMatchObject({ name: 'Synthetic routine', note: '', icon: 'cleaning', color: '#238C82' })
+    expect(imported.occurrences).toHaveLength(2)
+    expect(imported.occurrences.map((item) => item.note)).toEqual(['First occurrence', 'Second occurrence'])
+    expect(new Set(imported.occurrences.map((item) => item.eventId))).toEqual(new Set(['event-new']))
+    vi.unstubAllGlobals()
+  })
+
+  it('keeps explicit event and occurrence note aliases at their intended levels', () => {
+    vi.stubGlobal('crypto', {
+      randomUUID: vi.fn().mockReturnValueOnce('event-new').mockReturnValueOnce('occ-new')
+    })
+    const imported = importCsv('Event,event_notes,occurrence_notes,occurredAt\nSynthetic item,Event context,Occurrence context,2026-01-01T00:00:00.000Z', new Date('2026-12-01T00:00:00.000Z'))
+    expect(imported.events[0].note).toBe('Event context')
+    expect(imported.occurrences[0].note).toBe('Occurrence context')
+    vi.unstubAllGlobals()
+  })
+
+  it('uses generic Note as an event note when the schema has no occurrence fields', () => {
+    vi.stubGlobal('crypto', { randomUUID: vi.fn().mockReturnValue('event-new') })
+    const imported = importCsv('Event,Note\nSynthetic item,Event context')
+    expect(imported.events[0].note).toBe('Event context')
+    expect(imported.occurrences).toHaveLength(0)
+    vi.unstubAllGlobals()
+  })
+
+  it('continues to reject future occurrence timestamps', () => {
+    vi.stubGlobal('crypto', { randomUUID: vi.fn().mockReturnValue('event-new') })
+    const imported = importCsv('Event,Note,Timestamp\nSynthetic item,Future note,1893456000', new Date('2026-01-01T00:00:00.000Z'))
+    expect(imported.events).toHaveLength(1)
+    expect(imported.occurrences).toHaveLength(0)
+    vi.unstubAllGlobals()
   })
 })

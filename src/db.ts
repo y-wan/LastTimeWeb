@@ -73,3 +73,15 @@ export async function importRecords(events: EventRecord[], occurrences: Occurren
     })
   })
 }
+
+export async function tombstoneAllData(timestamp = nowIso()) {
+  return withDataOperationLock(async () => db.transaction('rw', db.events, db.occurrences, async () => {
+    const events = await db.events.filter((event) => !event.deletedAt).toArray()
+    const occurrences = await db.occurrences.filter((occurrence) => !occurrence.deletedAt).toArray()
+    await Promise.all([
+      ...events.map((event) => db.events.update(event.id, { deletedAt: timestamp, updatedAt: timestamp })),
+      ...occurrences.map((occurrence) => db.occurrences.update(occurrence.id, { deletedAt: timestamp, updatedAt: timestamp }))
+    ])
+    return { events: events.length, occurrences: occurrences.length, timestamp }
+  }))
+}

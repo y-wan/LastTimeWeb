@@ -85,6 +85,8 @@ Settings supports:
 
 Exports use the enriched portable format and preserve event notes, icon, color, event creation time, occurrence time, and occurrence notes. Future occurrence timestamps are ignored during import and blocked in the editor.
 
+If an older iOS CSV created duplicate same-name events, update to this version, open **Settings → Data → Clear all data**, complete both confirmation steps while signed in and online, wait for the successful OneDrive sync, then import the CSV again and sync before reopening other devices. Clearing keeps app settings and Microsoft sign-in, but permanently tombstones all event/history records locally and in OneDrive. Future occurrence timestamps are ignored during import and blocked in the editor.
+
 ## Sync behavior
 
 Events and occurrences use stable UUIDs and ISO `updatedAt` values. Deletions are retained as tombstones. Merging is by UUID and chooses the latest update; equal timestamps prefer deletion, then use a canonical property-order-independent record comparison. The same occurrence UUID is never duplicated, while separate repeated occurrences remain separate records.
