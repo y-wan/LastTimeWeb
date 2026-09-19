@@ -57,6 +57,8 @@ Open the live PWA at **[https://lasttimeweb.feliciameow.workers.dev/](https://la
 3. Launch Last Time from the installed Home Screen icon.
 4. When the app shows **New version available**, choose **Update now**. The app waits for the new Service Worker to take control before reloading and shows a retryable error instead of hanging if activation times out.
 
+The installed label is selected from the system/browser language at installation time: Chinese locales use `上次`; other locales use `Last Time`. Existing Home Screen icons normally need to be removed and added again to pick up a changed or newly localized name.
+
 ### Install on Android
 
 1. Open the live URL in Chrome or Edge.
@@ -73,6 +75,8 @@ Enable **Home screen shortcuts** (shown as `桌面快捷方式` on Chinese syste
 
 If HyperOS asks for broad unknown-app installation access, prefer trying Chrome instead. If you deliberately enable that access for installation, use it only for this trusted PWA and disable it afterward. Some Xiaomi builds create only a Home screen shortcut rather than listing the PWA as a separately installed app; the shortcut still launches the standalone web experience.
 
+Current Chromium/Edge releases can read the manifest's localized names. Older Android browsers that ignore localized manifest members may use the English `Last Time` fallback; the app avoids fragile runtime manifest swapping that could break installability.
+
 ### Optional cross-device sync
 
 Data stays in this device's IndexedDB while signed out. To synchronize devices, sign in with the same personal or organizational Microsoft account on each device. The app uses only the account's private OneDrive App Folder and the delegated `Files.ReadWrite.AppFolder` permission; it does not request access to the rest of OneDrive. An organizational tenant may require administrator consent.
@@ -83,13 +87,15 @@ Sync runs while the app is open: at startup, foreground resume, local changes/im
 
 Export a CSV from [Last Time Tracker for iOS](https://apps.apple.com/app/id534982023), then open **Settings → Data → Import CSV** in this app. In the original legacy format, `Event` identifies the item and a generic `Note` on a row with `Timestamp` or `Date`/`Time` is treated as that individual history record's note.
 
-If you need to replace a previous malformed or duplicate import:
+Version 1.0.1 derives privacy-safe opaque IDs for legacy rows that do not contain IDs. Event identity uses the NFKC-normalized, trimmed, whitespace-collapsed, lowercase event name; occurrence identity uses that event ID plus the exact normalized ISO timestamp. Importing the same source repeatedly or independently on multiple devices therefore converges without semantic name-based deduplication during normal sync.
+
+If an older build already created duplicates, do not try to repair them with heuristic name matching:
 
 1. Close Last Time on every other device.
-2. On one device, sign in and go online.
+2. Update one device to version 1.0.1, sign in, and go online.
 3. Open **Settings → Data → Clear all data**, complete both confirmations, and wait for the OneDrive deletion sync to succeed.
-4. Import the CSV and sync again.
-5. Reopen the other devices only after that sync completes.
+4. Import the corrected enriched CSV once on that device and sync again.
+5. Reopen the other devices only after that sync completes; let them sync without importing the CSV again.
 
 This permanently removes existing item/history data but keeps settings and Microsoft sign-in. The app is local-first, has no application backend, and includes no analytics. OneDrive sync is optional.
 
@@ -170,14 +176,14 @@ On launch, foreground resume, and periodic checks while open, the installed PWA 
 Settings supports:
 
 - Existing iOS CSV columns `Event`, `Note`, `Date`, `Time`, and `Timestamp`.
-- Enriched portable columns `Event`, `Event Note`, `Icon`, `Color`, `Event Created`, `Occurrence`, and `Occurrence Note`.
+- Enriched portable columns including `Event ID`, `Event`, `Event Note`, `Icon`, `Color`, event timestamps, `Occurrence ID`, `Occurrence`, occurrence timestamps, and `Occurrence Note`.
 - Common legacy aliases including `Name`/`title`, `createdAt`, `eventId`, `occurrenceId`, `occurredAt`, and occurrence timestamps.
 
-Exports use the enriched portable format and preserve event notes, icon, color, event creation time, occurrence time, and occurrence notes. Future occurrence timestamps are ignored during import and blocked in the editor.
+Exports use the enriched portable format and preserve stable event/occurrence IDs, notes, icon, color, creation/update times, and occurrence times. Explicit imported IDs always win. For rows without IDs, deterministic opaque UUIDs make repeated or multi-device imports converge; normal OneDrive sync still deduplicates by UUID only. A later import of changed no-ID content receives a later `updatedAt`, so the existing last-write-wins merge policy applies. Future occurrence timestamps are ignored during import and blocked in the editor.
 
-For legacy iOS rows containing an occurrence timestamp or `Date`/`Time`, a generic `Note` column is treated as the occurrence note. Event-level notes use explicit aliases such as `Event Note` or `eventNote`. Rows without an explicit `eventId` are grouped by trimmed event name, preventing one event from being duplicated merely because each occurrence has a different note.
+For legacy iOS rows containing an occurrence timestamp or `Date`/`Time`, a generic `Note` column is treated as the occurrence note. Event-level notes use explicit aliases such as `Event Note` or `eventNote`. Rows without an explicit event ID are grouped by the normalized event name described above, preventing one event from being duplicated merely because each occurrence has a different note.
 
-If an older iOS CSV created duplicate same-name events, update to this version, open **Settings → Data → Clear all data**, complete both confirmation steps while signed in and online, wait for the successful OneDrive sync, then import the CSV again and sync before reopening other devices. Clearing keeps app settings and Microsoft sign-in, but permanently tombstones all event/history records locally and in OneDrive. Future occurrence timestamps are ignored during import and blocked in the editor.
+If an older version created duplicate same-name events, follow the single-device recovery procedure under [Migrate from Last Time Tracker for iOS](#migrate-from-last-time-tracker-for-ios). Clearing keeps app settings and Microsoft sign-in, but permanently tombstones all event/history records locally and in OneDrive.
 
 ## Sync behavior
 

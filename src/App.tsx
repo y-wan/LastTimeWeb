@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { addOccurrence, createEvent, db, deleteEvent, deleteOccurrence, importRecords, tombstoneAllData, updateEvent, updateOccurrence } from './db'
 import { exportCsv, importCsv } from './csv'
 import { averageInterval, formatDuration, formatElapsed, formatInterval, formatSyncDateTime, formatSyncTime, historyGroup, toLocalInputValue } from './date'
+import { applyLocalizedAppMetadata } from './appMetadata'
 import { accountIdentity } from './auth'
 import { accessibleForeground } from './colorContrast'
 import { canClearAllData, clearAllDataWorkflow, CloudDeletionPendingError } from './clearData'
@@ -381,6 +382,7 @@ export default function App() {
     document.documentElement.dataset.theme = theme
     document.documentElement.dataset.palette = colorTheme
     document.documentElement.lang = locale
+    applyLocalizedAppMetadata(locale)
     const roles = resolvedPaletteRoles(colorTheme, theme, systemDark)
     for (const [property, value] of Object.entries(paletteCssVariables(roles))) {
       document.documentElement.style.setProperty(property, value)
@@ -597,7 +599,7 @@ export default function App() {
             <label className="data-action"><span><MaterialIcon name="upload" size={22} /></span><div><strong>{t('import')}</strong><small>{t('importHint')}</small></div><input hidden type="file" accept=".csv,text/csv" onChange={async (event) => {
               const file = event.target.files?.[0]
               if (!file) return
-              const imported = importCsv(await file.text())
+              const imported = await importCsv(await file.text())
               await importRecords(imported.events, imported.occurrences)
               setNotice(t('imported')); mutate(); event.target.value = ''
             }} /></label>

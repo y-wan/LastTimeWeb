@@ -2,7 +2,12 @@ import type { EventRecord, OccurrenceRecord } from './types'
 import { normalizeEventColor } from './eventOptions'
 import { normalizeIconKey } from './iconCatalogue'
 
-const HEADERS = ['Event', 'Event Note', 'Icon', 'Color', 'Event Created', 'Occurrence', 'Occurrence Note']
+const HEADERS = [
+  'Event ID', 'Event', 'Event Note', 'Icon', 'Color', 'Event Created', 'Event Updated',
+  'Occurrence ID', 'Occurrence', 'Occurrence Created', 'Occurrence Updated', 'Occurrence Note'
+]
+const EVENT_NAMESPACE = '15075f6d-8f84-4dd4-9dd1-cb64a3176ec0'
+const OCCURRENCE_NAMESPACE = '219180e2-7d6b-4b7e-9747-5f9d0301ef44'
 
 function escapeCsv(value: string) {
   return `"${value.replaceAll('"', '""')}"`
@@ -16,12 +21,17 @@ export function exportCsv(events: EventRecord[], occurrences: OccurrenceRecord[]
     const entries = history.length ? history : [undefined]
     for (const occurrence of entries) {
       rows.push([
+        event.id,
         event.name,
         event.note,
         event.icon,
         event.color,
         event.createdAt,
+        event.updatedAt,
+        occurrence?.id ?? '',
         occurrence?.occurredAt ?? '',
+        occurrence?.createdAt ?? '',
+        occurrence?.updatedAt ?? '',
         occurrence?.note ?? ''
       ].map(escapeCsv).join(','))
     }
@@ -51,8 +61,15 @@ export function parseCsv(text: string) {
   )
 }
 
+function normalizeTimestamp(value: string) {
+  if (!value) return ''
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? '' : parsed.toISOString()
+}
+
 function parseLegacyDate(row: Record<string, string>) {
-  if (row.Occurrence || row.occurredAt || row.occurrenceTime) return row.Occurrence || row.occurredAt || row.occurrenceTime
+  const occurrence = row.Occurrence || row.occurredAt || row.occurrenceTime
+  if (occurrence) return normalizeTimestamp(occurrence)
   const timestamp = row.Timestamp || row.timestamp
   if (timestamp) {
     const numeric = Number(timestamp)
@@ -81,10 +98,43 @@ function hasOccurrenceSchema(row: Record<string, string>) {
     .some((header) => Object.hasOwn(row, header))
 }
 
-export function importCsv(text: string, now = new Date()) {
+function normalizeEventIdentity(name: string) {
+  return name.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase()
+}
+
+function uuidBytes(uuid: string) {
+  return Uint8Array.from(uuid.replaceAll('-', '').match(/.{2}/g) ?? [], (byte) => Number.parseInt(byte, 16))
+}
+
+async function deterministicUuid(namespace: string, value: string) {
+  const namespaceBytes = uuidBytes(namespace)
+  const valueBytes = new TextEncoder().encode(value)
+  const input = new Uint8Array(namespaceBytes.length + valueBytes.length)
+  input.set(namespaceBytes)
+  input.set(valueBytes, namespaceBytes.length)
+  const bytes = new Uint8Array(await crypto.subtle.digest('SHA-1', input)).slice(0, 16)
+  bytes[6] = (bytes[6] & 0x0f) | 0x50
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
+interface ImportRow {
+  row: Record<string, string>
+  name: string
+  eventId: string
+  eventNote: string
+  occurrenceNote: string
+  occurredAt: string
+}
+
+export async function importCsv(text: string, now = new Date()) {
   const rows = parseCsv(text)
   const events = new Map<string, EventRecord>()
-  const occurrences: OccurrenceRecord[] = []
+  const occurrences = new Map<string, OccurrenceRecord>()
+  const importTime = now.toISOString()
+  const importRows: ImportRow[] = []
+
   for (const row of rows) {
     const name = (row.Event || row.Name || row.event || row.title).trim()
     if (!name) continue
@@ -94,34 +144,55 @@ export function importCsv(text: string, now = new Date()) {
     const occurrenceSchema = hasOccurrenceSchema(row)
     const eventNote = explicitEventNote || (!occurrenceSchema ? genericNote : '')
     const occurrenceNote = explicitOccurrenceNote || (occurrenceSchema ? genericNote : '')
-    const key = row.eventId || name
+    const eventId = firstValue(row, ['Event ID', 'eventId', 'event_id'])
+    importRows.push({ row, name, eventId, eventNote, occurrenceNote, occurredAt: parseLegacyDate(row) })
+  }
+
+  for (const item of importRows) {
+    const { row, name, eventNote, occurredAt } = item
+    const normalizedName = normalizeEventIdentity(name)
+    const key = item.eventId ? `id:${item.eventId}` : `name:${normalizedName}`
     let event = events.get(key)
     if (!event) {
-      const created = row['Event Created'] || row.createdAt || now.toISOString()
+      const id = item.eventId || await deterministicUuid(EVENT_NAMESPACE, normalizedName)
+      const created = normalizeTimestamp(firstValue(row, ['Event Created', 'eventCreatedAt', 'createdAt'])) || occurredAt || importTime
       event = {
-        id: row.eventId || crypto.randomUUID(),
+        id,
         name,
         note: eventNote,
         icon: normalizeIconKey(row.Icon || row.icon || 'event'),
         color: normalizeEventColor(row.Color || row.color),
         createdAt: created,
-        updatedAt: row.updatedAt || now.toISOString()
+        updatedAt: normalizeTimestamp(firstValue(row, ['Event Updated', 'eventUpdatedAt', 'updatedAt'])) || importTime
       }
       events.set(key, event)
     } else if (!event.note && eventNote) {
       event.note = eventNote
     }
-    const occurredAt = parseLegacyDate(row)
+  }
+
+  const importedOccurrences = await Promise.all(importRows.map(async (item) => {
+    const { row, occurrenceNote, occurredAt } = item
     if (occurredAt && new Date(occurredAt).getTime() <= now.getTime()) {
-      occurrences.push({
-        id: row.occurrenceId || crypto.randomUUID(),
+      const normalizedName = normalizeEventIdentity(item.name)
+      const key = item.eventId ? `id:${item.eventId}` : `name:${normalizedName}`
+      const event = events.get(key)
+      if (!event) return undefined
+      const explicitOccurrenceId = firstValue(row, ['Occurrence ID', 'occurrenceId', 'occurrence_id'])
+      const occurrenceId = explicitOccurrenceId || await deterministicUuid(OCCURRENCE_NAMESPACE, `${event.id}\0${occurredAt}`)
+      return {
+        id: occurrenceId,
         eventId: event.id,
         occurredAt,
         note: occurrenceNote,
-        createdAt: row.occurrenceCreatedAt || occurredAt,
-        updatedAt: row.occurrenceUpdatedAt || occurredAt
-      })
+        createdAt: normalizeTimestamp(firstValue(row, ['Occurrence Created', 'occurrenceCreatedAt'])) || occurredAt,
+        updatedAt: normalizeTimestamp(firstValue(row, ['Occurrence Updated', 'occurrenceUpdatedAt'])) || importTime
+      } satisfies OccurrenceRecord
     }
+    return undefined
+  }))
+  for (const occurrence of importedOccurrences) {
+    if (occurrence) occurrences.set(occurrence.id, occurrence)
   }
-  return { events: [...events.values()], occurrences }
+  return { events: [...events.values()], occurrences: [...occurrences.values()] }
 }

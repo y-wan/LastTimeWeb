@@ -22,9 +22,9 @@ const mappings = [
 ] as const
 
 describe('Android enriched CSV icon mapping', () => {
-  it('preserves and resolves all 14 icon keys to bundled Material Symbols without fallback', () => {
+  it('preserves and resolves all 14 icon keys to bundled Material Symbols without fallback', async () => {
     const csv = ['Event,Icon,Color', ...mappings.map(([event, icon, color]) => `"${event}","${icon}","${color}"`)].join('\n')
-    const imported = importCsv(csv)
+    const imported = await importCsv(csv)
     expect(imported.events).toHaveLength(14)
     for (const [index, [, expectedIcon, expectedColor]] of mappings.entries()) {
       expect(imported.events[index].icon).toBe(expectedIcon)
