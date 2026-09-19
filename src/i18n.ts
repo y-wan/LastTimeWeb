@@ -18,6 +18,7 @@ const translations = {
     futureError: 'Occurrence time cannot be in the future.', imported: 'Import complete.',
     clientIdMissing: 'Set VITE_MS_CLIENT_ID to enable OneDrive sync.',
     signedIn: 'Connected to OneDrive App Folder', checkingAccount: 'Checking Microsoft account…',
+    updateAvailable: 'New version available', updateNow: 'Update now', updating: 'Updating…', later: 'Later',
     search: 'Search events', clear: 'Clear'
   },
   'zh-CN': {
@@ -37,6 +38,7 @@ const translations = {
     futureError: '记录时间不能晚于现在。', imported: '导入完成。',
     clientIdMissing: '设置 VITE_MS_CLIENT_ID 后可启用 OneDrive 同步。',
     signedIn: '已连接 OneDrive 应用文件夹', checkingAccount: '正在检查 Microsoft 帐户…',
+    updateAvailable: '发现新版本', updateNow: '立即更新', updating: '正在更新…', later: '稍后',
     search: '搜索事项', clear: '清除'
   }
 } as const

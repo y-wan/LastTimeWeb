@@ -4,12 +4,20 @@ import {
 } from '@azure/msal-browser'
 import { rootRedirectUri, selectAccount } from './auth'
 import { db, nowIso } from './db'
-import { mergeDocuments } from './sync'
+import { withDataOperationLock } from './operationLock'
+import {
+  PreconditionFailedError,
+  synchronizeWithRetries,
+  uploadConditionHeaders,
+  type RemoteIdentity,
+  type RemoteSnapshot
+} from './syncEngine'
 import type { SyncDocument } from './types'
 
 const clientId = import.meta.env.VITE_MS_CLIENT_ID as string | undefined
 const authority = (import.meta.env.VITE_MS_AUTHORITY as string | undefined) || 'https://login.microsoftonline.com/common'
 const scopes = ['Files.ReadWrite.AppFolder']
+const itemUrl = 'https://graph.microsoft.com/v1.0/me/drive/special/approot:/last-time-data.json'
 const fileUrl = 'https://graph.microsoft.com/v1.0/me/drive/special/approot:/last-time-data.json:/content'
 
 let msal: PublicClientApplication | undefined
@@ -136,19 +144,40 @@ async function localDocument(): Promise<SyncDocument> {
   }
 }
 
-async function readRemote(accessToken: string): Promise<SyncDocument | undefined> {
-  const response = await fetch(fileUrl, { headers: { Authorization: `Bearer ${accessToken}` } })
-  if (response.status === 404) return undefined
-  if (!response.ok) throw new Error(`OneDrive download failed (${response.status}): ${await response.text()}`)
-  return response.json() as Promise<SyncDocument>
+interface DriveItemMetadata {
+  id: string
+  eTag: string
 }
 
-async function writeRemote(accessToken: string, document: SyncDocument) {
-  const response = await fetch(fileUrl, {
+async function readRemote(accessToken: string): Promise<RemoteSnapshot | undefined> {
+  const response = await fetch(`${itemUrl}?$select=id,eTag`, {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  })
+  if (response.status === 404) return undefined
+  if (!response.ok) throw new Error(`OneDrive metadata download failed (${response.status}): ${await response.text()}`)
+  const metadata = await response.json() as DriveItemMetadata
+  if (!metadata.id || !metadata.eTag) throw new Error('OneDrive sync file metadata is missing its ID or ETag')
+  const contentResponse = await fetch(fileUrl, { headers: { Authorization: `Bearer ${accessToken}` } })
+  if (!contentResponse.ok) throw new Error(`OneDrive download failed (${contentResponse.status}): ${await contentResponse.text()}`)
+  return {
+    document: await contentResponse.json() as SyncDocument,
+    identity: { id: metadata.id, eTag: metadata.eTag }
+  }
+}
+
+async function writeRemote(accessToken: string, document: SyncDocument, expected: RemoteIdentity | undefined) {
+  const response = await fetch(expected
+    ? `https://graph.microsoft.com/v1.0/me/drive/items/${encodeURIComponent(expected.id)}/content`
+    : fileUrl, {
     method: 'PUT',
-    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      ...uploadConditionHeaders(expected)
+    },
     body: JSON.stringify(document)
   })
+  if (response.status === 412 || (!expected && response.status === 409)) throw new PreconditionFailedError()
   if (!response.ok) throw new Error(`OneDrive upload failed (${response.status}): ${await response.text()}`)
 }
 
@@ -161,17 +190,22 @@ export function synchronize() {
     const account = await currentAccount()
     if (!account) return
     const accessToken = await token(account)
-    const local = await localDocument()
-    const remote = await readRemote(accessToken)
-    const merged = remote ? mergeDocuments(local, remote) : local
-    await db.transaction('rw', db.events, db.occurrences, async () => {
-      await db.events.bulkPut(merged.events)
-      await db.occurrences.bulkPut(merged.occurrences)
+    return withDataOperationLock(async () => {
+      const result = await synchronizeWithRetries({
+        readLocal: localDocument,
+        readRemote: () => readRemote(accessToken),
+        persistLocal: async (document) => {
+          await db.transaction('rw', db.events, db.occurrences, async () => {
+            await db.events.bulkPut(document.events)
+            await db.occurrences.bulkPut(document.occurrences)
+          })
+        },
+        writeRemote: (document, expected) => writeRemote(accessToken, document, expected),
+        now: nowIso
+      })
+      await db.syncMeta.put({ key: 'sync', lastSyncedAt: result.completedAt })
+      return result.completedAt
     })
-    const completedAt = nowIso()
-    await writeRemote(accessToken, { ...merged, updatedAt: completedAt })
-    await db.syncMeta.put({ key: 'sync', lastSyncedAt: completedAt })
-    return completedAt
   })().finally(() => { activeSync = undefined })
   return activeSync
 }

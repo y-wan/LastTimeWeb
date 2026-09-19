@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Download, History, Plus, Search, Settings, Upload, Wifi, WifiOff, X } from 'lucide-react'
-import { addOccurrence, createEvent, db, deleteEvent, deleteOccurrence, updateEvent, updateOccurrence } from './db'
+import { addOccurrence, createEvent, db, deleteEvent, deleteOccurrence, importRecords, updateEvent, updateOccurrence } from './db'
 import { exportCsv, importCsv } from './csv'
 import { formatElapsed, formatSyncTime, historyGroup, toLocalInputValue } from './date'
 import { accountIdentity } from './auth'
@@ -9,7 +9,9 @@ import { iconCatalogue } from './iconCatalogue'
 import { EventIcon } from './icons'
 import { translator } from './i18n'
 import { currentAccount, isSyncConfigured, signIn, signOut, subscribeAuth, synchronize, type AuthSnapshot } from './onedrive'
+import { activatePwaUpdate } from './pwaUpdate'
 import type { EventRecord, Locale, OccurrenceRecord, SyncState, ThemeMode } from './types'
+import { updateStore, type UpdateSnapshot } from './updateStore'
 
 const COLORS = ['#e66d5b', '#177b78', '#d6973c', '#7656a5', '#4f7d55', '#bf5c82', '#4d79b8', '#8a6547']
 const EMPTY_EVENTS: EventRecord[] = []
@@ -176,6 +178,8 @@ export default function App() {
   const [auth, setAuth] = useState<AuthSnapshot>({ ready: !isSyncConfigured() })
   const [notice, setNotice] = useState('')
   const [syncNotice, setSyncNotice] = useState('')
+  const [update, setUpdate] = useState<UpdateSnapshot>({ available: false, applying: false })
+  const [updateDismissed, setUpdateDismissed] = useState(false)
   const t = useMemo(() => translator(locale), [locale])
   const sync = useSync()
 
@@ -187,6 +191,10 @@ export default function App() {
     document.documentElement.lang = locale
   }, [theme, locale])
   useEffect(() => subscribeAuth(setAuth), [])
+  useEffect(() => updateStore.subscribe((snapshot) => {
+    setUpdate(snapshot)
+    if (snapshot.available && !snapshot.error) setUpdateDismissed(false)
+  }), [])
   useEffect(() => {
     if (!sync.lastSuccessfulSyncAt) return
     setSyncNotice(`${t('syncSucceeded')} · ${formatSyncTime(sync.lastSuccessfulSyncAt, locale)}`)
@@ -297,9 +305,7 @@ export default function App() {
               const file = event.target.files?.[0]
               if (!file) return
               const imported = importCsv(await file.text())
-              await db.transaction('rw', db.events, db.occurrences, async () => {
-                await db.events.bulkPut(imported.events); await db.occurrences.bulkPut(imported.occurrences)
-              })
+              await importRecords(imported.events, imported.occurrences)
               setNotice(t('imported')); mutate(); event.target.value = ''
             }} /></label>
             <button className="secondary" onClick={() => {
@@ -322,6 +328,10 @@ export default function App() {
         setEditingEvent(null); mutate()
       }} />}
       {detailEvent && <EventDetail event={detailEvent} occurrences={occurrences} locale={locale} t={t} onClose={() => setDetailId(null)} onMutate={mutate} onEditEvent={() => { setDetailId(null); setEditingEvent(detailEvent) }} />}
+      {(update.available || update.error) && !updateDismissed && <div className="update-banner">
+        <span>{update.error || t('updateAvailable')}</span>
+        <div><button className="secondary" disabled={update.applying} onClick={() => setUpdateDismissed(true)}>{t('later')}</button>{update.available && <button className="primary" disabled={update.applying} onClick={() => void activatePwaUpdate()}>{update.applying ? t('updating') : t('updateNow')}</button>}</div>
+      </div>}
       {syncNotice && <div className={`toast sync-toast ${undo ? 'stacked' : ''}`}>{syncNotice}</div>}
       {undo && <div className="toast">{t('marked')}<button onClick={async () => { window.clearTimeout(undo.timer); await deleteOccurrence(undo.id); setUndo(null); mutate() }}>{t('undo')}</button></div>}
     </div>

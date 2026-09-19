@@ -124,6 +124,9 @@ legend { margin-bottom: 8px; font-weight: 700; }
 .toast button { margin-left: auto; border: 0; background: transparent; color: #ff998a; font-weight: 800; }
 .sync-toast { min-width: 0; width: max-content; max-width: calc(100% - 32px); justify-content: center; }
 .sync-toast.stacked { bottom: calc(140px + env(safe-area-inset-bottom)); }
+.update-banner { position: fixed; z-index: 45; left: 50%; bottom: calc(84px + env(safe-area-inset-bottom)); transform: translateX(-50%); width: min(calc(100% - 24px), 600px); display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); font-weight: 750; }
+.update-banner > div { display: flex; gap: 7px; flex: none; }
+.update-banner button { padding: 9px 11px; }
 
 @media (min-width: 640px) {
   main { padding-inline: 24px; }
