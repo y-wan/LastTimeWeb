@@ -36,3 +36,7 @@ export function toLocalInputValue(iso: string) {
   const offset = date.getTimezoneOffset() * 60_000
   return new Date(date.getTime() - offset).toISOString().slice(0, 16)
 }
+
+export function formatSyncTime(iso: string, locale: Locale) {
+  return new Intl.DateTimeFormat(locale, { timeStyle: 'medium' }).format(new Date(iso))
+}

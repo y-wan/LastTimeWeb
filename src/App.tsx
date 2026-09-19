@@ -3,11 +3,12 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { Download, History, Plus, Search, Settings, Upload, Wifi, WifiOff, X } from 'lucide-react'
 import { addOccurrence, createEvent, db, deleteEvent, deleteOccurrence, updateEvent, updateOccurrence } from './db'
 import { exportCsv, importCsv } from './csv'
-import { formatElapsed, historyGroup, toLocalInputValue } from './date'
+import { formatElapsed, formatSyncTime, historyGroup, toLocalInputValue } from './date'
+import { accountIdentity } from './auth'
 import { iconCatalogue } from './iconCatalogue'
 import { EventIcon } from './icons'
 import { translator } from './i18n'
-import { currentAccount, isSyncConfigured, signIn, signOut, synchronize } from './onedrive'
+import { currentAccount, isSyncConfigured, signIn, signOut, subscribeAuth, synchronize, type AuthSnapshot } from './onedrive'
 import type { EventRecord, Locale, OccurrenceRecord, SyncState, ThemeMode } from './types'
 
 const COLORS = ['#e66d5b', '#177b78', '#d6973c', '#7656a5', '#4f7d55', '#bf5c82', '#4d79b8', '#8a6547']
@@ -17,25 +18,26 @@ const EMPTY_OCCURRENCES: OccurrenceRecord[] = []
 type EventDraft = Pick<EventRecord, 'name' | 'note' | 'icon' | 'color'>
 const emptyDraft: EventDraft = { name: '', note: '', icon: 'clock', color: COLORS[0] }
 
-function useSync(onComplete: () => void) {
+function useSync() {
   const [state, setState] = useState<SyncState>(navigator.onLine ? 'idle' : 'offline')
   const [error, setError] = useState('')
+  const [lastSuccessfulSyncAt, setLastSuccessfulSyncAt] = useState<string>()
   const timer = useRef<number | undefined>(undefined)
 
   const run = useCallback(async () => {
     if (!navigator.onLine) { setState('offline'); return }
-    if (!isSyncConfigured() || !(await currentAccount())) { setState('idle'); return }
-    setState('syncing')
-    setError('')
     try {
-      await synchronize()
+      if (!isSyncConfigured() || !(await currentAccount())) { setState('idle'); return }
+      setState('syncing')
+      setError('')
+      const completedAt = await synchronize()
       setState('idle')
-      onComplete()
+      if (completedAt) setLastSuccessfulSyncAt(completedAt)
     } catch (cause) {
       setState(navigator.onLine ? 'error' : 'offline')
       setError(cause instanceof Error ? cause.message : String(cause))
     }
-  }, [onComplete])
+  }, [])
 
   const schedule = useCallback(() => {
     window.clearTimeout(timer.current)
@@ -58,7 +60,7 @@ function useSync(onComplete: () => void) {
     }
   }, [run])
 
-  return { state, error, run, schedule }
+  return { state, error, lastSuccessfulSyncAt, run, schedule }
 }
 
 function EventForm({ initial, t, onSave, onClose }: {
@@ -171,11 +173,11 @@ export default function App() {
   const [detailId, setDetailId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [undo, setUndo] = useState<{ id: string; timer: number } | null>(null)
-  const [accountName, setAccountName] = useState('')
+  const [auth, setAuth] = useState<AuthSnapshot>({ ready: !isSyncConfigured() })
   const [notice, setNotice] = useState('')
+  const [syncNotice, setSyncNotice] = useState('')
   const t = useMemo(() => translator(locale), [locale])
-  const refreshAccount = useCallback(() => { void currentAccount().then((account) => setAccountName(account?.username ?? '')) }, [])
-  const sync = useSync(refreshAccount)
+  const sync = useSync()
 
   useEffect(() => {
     if (settings) { setLocale(settings.locale); setTheme(settings.theme) }
@@ -184,7 +186,13 @@ export default function App() {
     document.documentElement.dataset.theme = theme
     document.documentElement.lang = locale
   }, [theme, locale])
-  useEffect(refreshAccount, [refreshAccount])
+  useEffect(() => subscribeAuth(setAuth), [])
+  useEffect(() => {
+    if (!sync.lastSuccessfulSyncAt) return
+    setSyncNotice(`${t('syncSucceeded')} · ${formatSyncTime(sync.lastSuccessfulSyncAt, locale)}`)
+    const timer = window.setTimeout(() => setSyncNotice(''), 4_000)
+    return () => window.clearTimeout(timer)
+  }, [locale, sync.lastSuccessfulSyncAt, t])
 
   const mutate = useCallback(() => sync.schedule(), [sync])
   const latestByEvent = useMemo(() => {
@@ -198,6 +206,7 @@ export default function App() {
   const filtered = events.filter((event) => `${event.name} ${event.note}`.toLowerCase().includes(query.toLowerCase()))
   const sorted = [...filtered].sort((a, b) => (latestByEvent.get(b.id)?.occurredAt ?? '').localeCompare(latestByEvent.get(a.id)?.occurredAt ?? ''))
   const detailEvent = events.find((event) => event.id === detailId)
+  const identity = auth.account ? accountIdentity(auth.account) : undefined
 
   const markNow = async (eventId: string) => {
     const occurrence = await addOccurrence(eventId)
@@ -210,6 +219,23 @@ export default function App() {
   const persistSettings = async (nextLocale: Locale, nextTheme: ThemeMode) => {
     setLocale(nextLocale); setTheme(nextTheme)
     await db.settings.put({ key: 'settings', locale: nextLocale, theme: nextTheme })
+  }
+
+  const connectMicrosoft = async () => {
+    try {
+      await signIn()
+      await sync.run()
+    } catch (cause) {
+      setAuth({ ready: true, error: cause instanceof Error ? cause.message : String(cause) })
+    }
+  }
+
+  const disconnectMicrosoft = async () => {
+    try {
+      await signOut()
+    } catch (cause) {
+      setAuth((current) => ({ ...current, ready: true, error: cause instanceof Error ? cause.message : String(cause) }))
+    }
   }
 
   const grouped = (['today', 'recent', 'earlier', 'never'] as const).map((group) => ({
@@ -260,11 +286,11 @@ export default function App() {
           <section><h2>{t('language')}</h2><div className="segmented"><button className={locale === 'en' ? 'active' : ''} onClick={() => void persistSettings('en', theme)}>English</button><button className={locale === 'zh-CN' ? 'active' : ''} onClick={() => void persistSettings('zh-CN', theme)}>简体中文</button></div></section>
           <section><h2>{t('appearance')}</h2><div className="segmented">{(['system', 'light', 'dark'] as ThemeMode[]).map((value) => <button className={theme === value ? 'active' : ''} key={value} onClick={() => void persistSettings(locale, value)}>{t(value)}</button>)}</div></section>
           <section><h2>{t('sync')}</h2>
-            {!isSyncConfigured() ? <p className="warning">{t('clientIdMissing')}</p> : accountName ? <>
-              <p className="connected">{t('signedIn')}<small>{accountName}</small></p>
-              <div className="settings-actions"><button className="primary" onClick={() => void sync.run()}>{t('syncNow')}</button><button className="secondary" onClick={async () => { await signOut(); setAccountName('') }}>{t('signOut')}</button></div>
-            </> : <button className="primary wide" onClick={async () => { const account = await signIn(); setAccountName(account.username); await sync.run() }}>{t('signIn')}</button>}
-            {sync.error && <p className="error-message">{sync.error}</p>}
+            {!isSyncConfigured() ? <p className="warning">{t('clientIdMissing')}</p> : !auth.ready ? <p>{t('checkingAccount')}</p> : auth.account ? <>
+              <p className="connected">{t('signedIn')}<strong>{identity?.primary}</strong>{identity?.secondary && <small>{identity.secondary}</small>}</p>
+              <div className="settings-actions"><button className="primary" disabled={sync.state === 'syncing'} onClick={() => void sync.run()}>{sync.state === 'syncing' ? t('syncing') : t('syncNow')}</button><button className="secondary" onClick={() => void disconnectMicrosoft()}>{t('signOut')}</button></div>
+            </> : <button className="primary wide" onClick={() => void connectMicrosoft()}>{t('signIn')}</button>}
+            {(auth.error || sync.error) && <p className="error-message">{auth.error || sync.error}</p>}
           </section>
           <section><h2>{t('data')}</h2><div className="settings-actions">
             <label className="button secondary"><Upload size={18} />{t('import')}<input hidden type="file" accept=".csv,text/csv" onChange={async (event) => {
@@ -296,6 +322,7 @@ export default function App() {
         setEditingEvent(null); mutate()
       }} />}
       {detailEvent && <EventDetail event={detailEvent} occurrences={occurrences} locale={locale} t={t} onClose={() => setDetailId(null)} onMutate={mutate} onEditEvent={() => { setDetailId(null); setEditingEvent(detailEvent) }} />}
+      {syncNotice && <div className={`toast sync-toast ${undo ? 'stacked' : ''}`}>{syncNotice}</div>}
       {undo && <div className="toast">{t('marked')}<button onClick={async () => { window.clearTimeout(undo.timer); await deleteOccurrence(undo.id); setUndo(null); mutate() }}>{t('undo')}</button></div>}
     </div>
   )

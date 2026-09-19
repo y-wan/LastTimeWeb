@@ -27,7 +27,7 @@ No client secret is used or needed. Create a **Single-page application** registr
 1. Register an app and choose the supported account type you want. `Accounts in any organizational directory and personal Microsoft accounts` works for both work and personal OneDrive.
 2. Under **Authentication**, add a **Single-page application** redirect URI matching the exact deployed app URL, including its trailing slash:
    - Local Vite: `http://localhost:5173/`
-   - Cloudflare Workers: the `https://lasttimeweb.<account-subdomain>.workers.dev/` URL shown after deployment, or the exact custom domain URL
+   - Cloudflare Workers: the root `https://lasttimeweb.<account-subdomain>.workers.dev/` URL shown after deployment, including the trailing slash, or the exact custom-domain root URL
 3. Under **API permissions**, add Microsoft Graph delegated permission `Files.ReadWrite.AppFolder`. Admin consent is normally not required for personal use.
 4. Copy the Application (client) ID into `.env.local`:
 
@@ -38,6 +38,8 @@ VITE_MS_AUTHORITY=https://login.microsoftonline.com/common
 ```
 
 The app signs in with MSAL Browser, requests only `Files.ReadWrite.AppFolder`, and reads/writes `last-time-data.json` under Graph `/me/drive/special/approot`. Sync runs on startup, foreground resume, local changes, manual request, and network restoration. Errors remain visible in the UI.
+
+MSAL always uses the deployment origin root as its redirect URI. For example, a deployment at `https://lasttimeweb.example.workers.dev` must have exactly `https://lasttimeweb.example.workers.dev/` registered as an SPA redirect URI; do not register a route or omit the trailing slash.
 
 ## Deploy
 

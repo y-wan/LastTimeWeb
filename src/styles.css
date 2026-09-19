@@ -67,6 +67,7 @@ main { padding: 0 16px 24px; }
 .event-copy { min-width: 0; display: grid; gap: 2px; }
 .event-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 1.04rem; }
 .event-copy small, .history-row small, .connected small { display: block; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.connected strong { display: block; margin-top: 5px; }
 .event-copy b { color: var(--teal); font-size: .84rem; }
 .mark-button { border: 0; border-radius: 14px; padding: 10px 13px; background: color-mix(in srgb, var(--primary) 13%, transparent); color: var(--primary); font-weight: 800; }
 .empty-state { min-height: 52vh; display: grid; place-content: center; justify-items: center; gap: 14px; color: var(--muted); text-align: center; }
@@ -121,6 +122,8 @@ legend { margin-bottom: 8px; font-weight: 700; }
 .empty { color: var(--muted); }
 .toast { position: fixed; z-index: 50; bottom: calc(84px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 24px; min-width: 220px; padding: 13px 16px; border-radius: 14px; background: #263033; color: white; box-shadow: var(--shadow); }
 .toast button { margin-left: auto; border: 0; background: transparent; color: #ff998a; font-weight: 800; }
+.sync-toast { min-width: 0; width: max-content; max-width: calc(100% - 32px); justify-content: center; }
+.sync-toast.stacked { bottom: calc(140px + env(safe-area-inset-bottom)); }
 
 @media (min-width: 640px) {
   main { padding-inline: 24px; }

@@ -13,10 +13,12 @@ const translations = {
     data: 'Data', import: 'Import CSV', export: 'Export CSV', sync: 'OneDrive sync',
     signIn: 'Sign in with Microsoft', signOut: 'Sign out', syncNow: 'Sync now',
     offline: 'Offline', syncing: 'Syncing…', synced: 'Synced', syncError: 'Sync error',
+    syncSucceeded: 'Synced',
     confirmDeleteEvent: 'Delete this event and its history?', confirmDeleteOccurrence: 'Delete this occurrence?',
     futureError: 'Occurrence time cannot be in the future.', imported: 'Import complete.',
     clientIdMissing: 'Set VITE_MS_CLIENT_ID to enable OneDrive sync.',
-    signedIn: 'Connected to OneDrive App Folder', search: 'Search events', clear: 'Clear'
+    signedIn: 'Connected to OneDrive App Folder', checkingAccount: 'Checking Microsoft account…',
+    search: 'Search events', clear: 'Clear'
   },
   'zh-CN': {
     appName: '上次', subtitle: '我上次做这件事是什么时候？', addEvent: '添加事项', events: '事项',
@@ -30,10 +32,12 @@ const translations = {
     data: '数据', import: '导入 CSV', export: '导出 CSV', sync: 'OneDrive 同步',
     signIn: '登录 Microsoft', signOut: '退出登录', syncNow: '立即同步',
     offline: '离线', syncing: '同步中…', synced: '已同步', syncError: '同步错误',
+    syncSucceeded: '同步完成',
     confirmDeleteEvent: '删除此事项及其历史记录？', confirmDeleteOccurrence: '删除此条记录？',
     futureError: '记录时间不能晚于现在。', imported: '导入完成。',
     clientIdMissing: '设置 VITE_MS_CLIENT_ID 后可启用 OneDrive 同步。',
-    signedIn: '已连接 OneDrive 应用文件夹', search: '搜索事项', clear: '清除'
+    signedIn: '已连接 OneDrive 应用文件夹', checkingAccount: '正在检查 Microsoft 帐户…',
+    search: '搜索事项', clear: '清除'
   }
 } as const
 

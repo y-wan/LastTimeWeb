@@ -2,6 +2,7 @@ import {
   BrowserCacheLocation, InteractionRequiredAuthError, PublicClientApplication,
   type AccountInfo, type Configuration
 } from '@azure/msal-browser'
+import { rootRedirectUri, selectAccount } from './auth'
 import { db, nowIso } from './db'
 import { mergeDocuments } from './sync'
 import type { SyncDocument } from './types'
@@ -12,13 +13,32 @@ const scopes = ['Files.ReadWrite.AppFolder']
 const fileUrl = 'https://graph.microsoft.com/v1.0/me/drive/special/approot:/last-time-data.json:/content'
 
 let msal: PublicClientApplication | undefined
-let initialized = false
+let initialization: Promise<PublicClientApplication | undefined> | undefined
+
+export interface AuthSnapshot {
+  ready: boolean
+  account?: AccountInfo
+  error?: string
+}
+
+let authSnapshot: AuthSnapshot = { ready: !clientId }
+const authListeners = new Set<(snapshot: AuthSnapshot) => void>()
+
+function publishAuth(snapshot: AuthSnapshot) {
+  authSnapshot = snapshot
+  for (const listener of authListeners) listener(snapshot)
+}
 
 function getMsal() {
   if (!clientId) return undefined
   if (!msal) {
     const config: Configuration = {
-      auth: { clientId, authority, redirectUri: window.location.href.split(/[?#]/)[0] },
+      auth: {
+        clientId,
+        authority,
+        redirectUri: rootRedirectUri(window.location.origin),
+        postLogoutRedirectUri: rootRedirectUri(window.location.origin)
+      },
       cache: { cacheLocation: BrowserCacheLocation.LocalStorage }
     }
     msal = new PublicClientApplication(config)
@@ -28,13 +48,28 @@ function getMsal() {
 
 async function initialize() {
   const instance = getMsal()
-  if (instance && !initialized) {
-    await instance.initialize()
-    const result = await instance.handleRedirectPromise()
-    if (result?.account) instance.setActiveAccount(result.account)
-    initialized = true
+  if (!instance) return undefined
+  if (!initialization) {
+    const attempt = (async () => {
+      try {
+        await instance.initialize()
+        const result = await instance.handleRedirectPromise()
+        const account = selectAccount(result?.account, instance.getActiveAccount(), instance.getAllAccounts())
+        if (account) instance.setActiveAccount(account)
+        publishAuth({ ready: true, account })
+        return instance
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        publishAuth({ ready: true, error: message })
+        throw error
+      }
+    })()
+    initialization = attempt.catch((error) => {
+      initialization = undefined
+      throw error
+    })
   }
-  return instance
+  return initialization
 }
 
 export function isSyncConfigured() {
@@ -43,7 +78,26 @@ export function isSyncConfigured() {
 
 export async function currentAccount() {
   const instance = await initialize()
-  return instance?.getActiveAccount() ?? instance?.getAllAccounts()[0]
+  if (!instance) return undefined
+  const account = selectAccount(undefined, instance.getActiveAccount(), instance.getAllAccounts())
+  if (account && instance.getActiveAccount()?.homeAccountId !== account.homeAccountId) {
+    instance.setActiveAccount(account)
+  }
+  if (authSnapshot.account?.homeAccountId !== account?.homeAccountId || !authSnapshot.ready || authSnapshot.error) {
+    publishAuth({ ready: true, account })
+  }
+  return account
+}
+
+export function subscribeAuth(listener: (snapshot: AuthSnapshot) => void) {
+  authListeners.add(listener)
+  listener(authSnapshot)
+  void initialize().catch(() => {
+    // initialize publishes the actionable error before rejecting.
+  })
+  return () => {
+    authListeners.delete(listener)
+  }
 }
 
 export async function signIn() {
@@ -51,6 +105,7 @@ export async function signIn() {
   if (!instance) throw new Error('VITE_MS_CLIENT_ID is not configured')
   const result = await instance.loginPopup({ scopes, prompt: 'select_account' })
   instance.setActiveAccount(result.account)
+  publishAuth({ ready: true, account: result.account })
   return result.account
 }
 
@@ -58,6 +113,7 @@ export async function signOut() {
   const instance = await initialize()
   const account = await currentAccount()
   if (instance && account) await instance.logoutPopup({ account })
+  publishAuth({ ready: true })
 }
 
 async function token(account: AccountInfo) {
@@ -96,7 +152,7 @@ async function writeRemote(accessToken: string, document: SyncDocument) {
   if (!response.ok) throw new Error(`OneDrive upload failed (${response.status}): ${await response.text()}`)
 }
 
-let activeSync: Promise<void> | undefined
+let activeSync: Promise<string | undefined> | undefined
 
 export function synchronize() {
   if (activeSync) return activeSync
@@ -112,8 +168,10 @@ export function synchronize() {
       await db.events.bulkPut(merged.events)
       await db.occurrences.bulkPut(merged.occurrences)
     })
-    await writeRemote(accessToken, { ...merged, updatedAt: nowIso() })
-    await db.syncMeta.put({ key: 'sync', lastSyncedAt: nowIso() })
+    const completedAt = nowIso()
+    await writeRemote(accessToken, { ...merged, updatedAt: completedAt })
+    await db.syncMeta.put({ key: 'sync', lastSyncedAt: completedAt })
+    return completedAt
   })().finally(() => { activeSync = undefined })
   return activeSync
 }
