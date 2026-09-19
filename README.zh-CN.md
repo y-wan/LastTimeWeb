@@ -1,8 +1,50 @@
 [English](README.md) | 简体中文
 
-# Last Time
+<p align="center">
+  <img src="docs/images/last-time-hero.svg" width="900" alt="Last Time——记住某件事上次发生的时间" />
+</p>
 
-Last Time 是一款离线优先、可安装的 React PWA，用来记录某件事上次发生或完成的时间。数据保存在本机 IndexedDB 中，也可选择通过 Microsoft Graph 的 OneDrive 应用文件夹同步一份应用私有 JSON 文档。
+<p align="center">
+  <a href="https://lasttimeweb.feliciameow.workers.dev/"><img alt="在线 PWA" src="https://img.shields.io/badge/Live_PWA-Open-D65A3A?style=flat-square" /></a>
+  <img alt="React 与 TypeScript" src="https://img.shields.io/badge/React_+_TypeScript-3F6FD4?style=flat-square&logo=react&logoColor=white" />
+  <a href="LICENSE"><img alt="MIT 许可证" src="https://img.shields.io/badge/License-MIT-0F8C80?style=flat-square" /></a>
+</p>
+
+Last Time 是一款离线优先、可安装的 PWA，用来记住某件事上次发生的时间，而不是把日常生活变成待办清单。历史记录保存在本机，也可以通过 OneDrive 应用文件夹在设备间同步。
+
+<p align="center"><strong><a href="https://lasttimeweb.feliciameow.workers.dev/">打开 Last Time</a></strong></p>
+
+## 为什么选择 Last Time？
+
+- **只记录历史，不制造压力。** 查看上次浇花、换床品或清洁滤网的时间，不设置截止日期、连续打卡或逾期提醒。
+- **快速、私密、离线优先。** 事项与历史记录保存在 IndexedDB 中，断网时仍可正常使用。
+- **数据可迁移。** 支持导入旧版 iOS CSV、导出扩展 CSV，并可选择通过私有 OneDrive 应用文件夹同步。
+- **适合不同设备。** 可从 Safari、Chrome 或 Edge 安装，支持英文和简体中文，并提供五套清晰的浅色/深色主题。
+
+## 产品一览
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="docs/images/home-light.png" width="100%" alt="浅色 Ember 主题主页，展示三个合成示例事项" /><br />
+      <sub><strong>一眼看清历史。</strong>按本地日历日计算经过时间，并显示最近记录。</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="docs/images/editor-dark.png" width="100%" alt="深色事项编辑器，展示实时预览、图标选择和颜色选择" /><br />
+      <sub><strong>直观编辑。</strong>实时预览图标与颜色，并提供稳定、丰富的图标目录。</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <img src="docs/images/settings-light.png" width="100%" alt="设置页面，展示主题预览和未登录时仅保存在本机的同步状态" /><br />
+      <sub><strong>状态清楚可控。</strong>集中管理外观、语言和真实的本机或 OneDrive 同步状态。</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="docs/images/about-light.png" width="100%" alt="关于与致谢页面，展示项目署名、隐私边界和数据控制" /><br />
+      <sub><strong>默认透明。</strong>清楚说明致谢、隐私边界、数据工具和开源许可证。</sub>
+    </td>
+  </tr>
+</table>
 
 ## 使用应用
 
@@ -18,8 +60,18 @@ Last Time 是一款离线优先、可安装的 React PWA，用来记录某件事
 ### 在 Android 上安装
 
 1. 使用 Chrome 或 Edge 打开在线地址。
-2. 选择**安装应用**或**添加到主屏幕**。
+2. 优先选择**添加到主屏幕**，也可选择**安装应用**。
 3. 从已安装的应用图标启动 Last Time。
+
+#### 小米、MIUI 与 HyperOS
+
+如果 Microsoft Edge 没有添加 Last Time，而是跳转到**应用信息**，请为 Edge 开启创建主屏幕快捷方式的权限。不同 MIUI/HyperOS 版本的路径可能略有差异，通常是：
+
+**设置 → 应用设置 → 应用管理 → Microsoft Edge → 权限管理 / 其他权限 → 桌面快捷方式**
+
+开启**桌面快捷方式**后回到 Edge，再次选择**添加到主屏幕**。实际验证中，只需要这个权限，不需要开启范围更大的**安装未知应用**权限。跳转到“应用信息”是 Android/HyperOS 或浏览器的系统行为，并非 Last Time 主动跳转。
+
+如果 HyperOS 要求授予广泛的“安装未知应用”权限，建议先改用 Chrome。若你决定临时开启，请只为安装这个可信 PWA 使用，并在完成后关闭。部分小米系统只会创建主屏幕快捷方式，不会在应用列表中显示一个单独安装的应用；该快捷方式仍会启动独立窗口中的 Web 应用。
 
 ### 可选的跨设备同步
 
@@ -105,11 +157,9 @@ npx wrangler deploy
 
 不要把 `VITE_MS_CLIENT_ID` 写入 `wrangler.jsonc`。请将它配置为 Cloudflare 构建变量，由 Vite 在构建时嵌入这个公开的应用程序 ID。首次部署后，请先把准确的 HTTPS 部署地址添加为 Microsoft Entra SPA 重定向 URI，再启用 OneDrive。
 
-## 安装
+## 离线使用与更新
 
-- **iPhone/iPad：**在 Safari 中打开 HTTPS 网站，点按**分享**，然后选择**添加到主屏幕**。
-- **Android：**在 Chrome/Edge 中打开网站，选择**安装应用**或**添加到主屏幕**。
-- **桌面端：**使用浏览器地址栏中的安装图标。
+桌面端可使用浏览器地址栏中的安装图标。移动端安装步骤与小米/HyperOS 排障说明见[使用应用](#使用应用)。
 
 首次成功加载后，Service Worker 会缓存应用外壳。离线时仍可使用事项、历史记录、导入/导出以及待同步数据。
 

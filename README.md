@@ -1,8 +1,50 @@
 English | [简体中文](README.zh-CN.md)
 
-# Last Time
+<p align="center">
+  <img src="docs/images/last-time-hero.svg" width="900" alt="Last Time — Remember when it last happened." />
+</p>
 
-Last Time is an offline-first, installable React PWA for remembering when you last did something. It stores data locally in IndexedDB and can optionally sync an app-private JSON document through Microsoft Graph's OneDrive App Folder.
+<p align="center">
+  <a href="https://lasttimeweb.feliciameow.workers.dev/"><img alt="Live PWA" src="https://img.shields.io/badge/Live_PWA-Open-D65A3A?style=flat-square" /></a>
+  <img alt="React and TypeScript" src="https://img.shields.io/badge/React_+_TypeScript-3F6FD4?style=flat-square&logo=react&logoColor=white" />
+  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/License-MIT-0F8C80?style=flat-square" /></a>
+</p>
+
+Last Time is an offline-first, installable PWA for remembering when something last happened—without turning everyday life into a task list. Your history works locally, and optional OneDrive App Folder sync keeps your devices aligned.
+
+<p align="center"><strong><a href="https://lasttimeweb.feliciameow.workers.dev/">Open Last Time</a></strong></p>
+
+## Why Last Time?
+
+- **History, not pressure.** See when you watered the plants, changed bedding, or cleaned a filter without deadlines, streaks, or overdue badges.
+- **Fast, private, and offline-first.** Events and occurrence history live in IndexedDB and remain usable without a connection.
+- **Portable by design.** Import legacy iOS CSV files, export enriched CSV, and optionally sync through your private OneDrive App Folder.
+- **Made for every screen.** Install from Safari, Chrome, or Edge; use English or Simplified Chinese; choose from five clean light/dark palettes.
+
+## Product walkthrough
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="docs/images/home-light.png" width="100%" alt="Last Time home screen in the light Ember palette with three synthetic events" /><br />
+      <sub><strong>At-a-glance history.</strong> Calendar-day-aware elapsed time and recent occurrence context.</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="docs/images/editor-dark.png" width="100%" alt="Dark-mode event editor with a live preview, icon picker, and color choices" /><br />
+      <sub><strong>Expressive editing.</strong> Live icon and color preview with a broad, stable catalogue.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <img src="docs/images/settings-light.png" width="100%" alt="Settings screen with appearance palettes and signed-out device-only sync status" /><br />
+      <sub><strong>Clear control.</strong> Appearance, language, and honest device-only or OneDrive sync state.</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="docs/images/about-light.png" width="100%" alt="About and credits screen with project attribution and privacy-oriented data controls" /><br />
+      <sub><strong>Transparent by default.</strong> Credits, privacy boundaries, data tools, and open-source licensing.</sub>
+    </td>
+  </tr>
+</table>
 
 ## Use the app
 
@@ -18,8 +60,18 @@ Open the live PWA at **[https://lasttimeweb.feliciameow.workers.dev/](https://la
 ### Install on Android
 
 1. Open the live URL in Chrome or Edge.
-2. Choose **Install app** or **Add to Home screen**.
+2. Choose **Add to Home screen** (preferred) or **Install app**.
 3. Launch Last Time from the installed app icon.
+
+#### Xiaomi, MIUI, and HyperOS
+
+If Microsoft Edge opens **App info** instead of adding Last Time, grant Edge permission to create Home screen shortcuts. The exact path varies by MIUI/HyperOS version, but it is usually:
+
+**Settings → Apps → Manage apps → Microsoft Edge → Permissions / Other permissions → Home screen shortcuts**
+
+Enable **Home screen shortcuts** (shown as `桌面快捷方式` on Chinese systems), return to Edge, and choose **Add to Home screen** again. This permission—not the broader **Install unknown apps** permission—was the verified fix. The App info redirect is Android/HyperOS or browser behavior; Last Time does not redirect users there.
+
+If HyperOS asks for broad unknown-app installation access, prefer trying Chrome instead. If you deliberately enable that access for installation, use it only for this trusted PWA and disable it afterward. Some Xiaomi builds create only a Home screen shortcut rather than listing the PWA as a separately installed app; the shortcut still launches the standalone web experience.
 
 ### Optional cross-device sync
 
@@ -105,11 +157,9 @@ npx wrangler deploy
 
 Do not put `VITE_MS_CLIENT_ID` in `wrangler.jsonc`. Configure it as a Cloudflare build variable so Vite can embed the public application ID during the build. After the first deployment, add the exact HTTPS deployment URL as an SPA redirect URI in Microsoft Entra before enabling OneDrive.
 
-## Install
+## Offline use and updates
 
-- **iPhone/iPad:** open the HTTPS site in Safari, tap **Share**, then **Add to Home Screen**.
-- **Android:** open the site in Chrome/Edge and choose **Install app** or **Add to Home screen**.
-- **Desktop:** use the install icon in the browser address bar.
+On desktop, use the install icon in the browser address bar. Mobile installation steps and Xiaomi/HyperOS troubleshooting are documented in [Use the app](#use-the-app).
 
 The service worker caches the app shell after the first successful load. Events, history, import/export, and pending sync data continue to work offline.
 
