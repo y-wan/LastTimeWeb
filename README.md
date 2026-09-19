@@ -27,7 +27,7 @@ No client secret is used or needed. Create a **Single-page application** registr
 1. Register an app and choose the supported account type you want. `Accounts in any organizational directory and personal Microsoft accounts` works for both work and personal OneDrive.
 2. Under **Authentication**, add a **Single-page application** redirect URI matching the exact deployed app URL, including its trailing slash:
    - Local Vite: `http://localhost:5173/`
-   - GitHub Pages: `https://<owner>.github.io/<repository>/`
+   - Cloudflare Workers: the `https://lasttimeweb.<account-subdomain>.workers.dev/` URL shown after deployment, or the exact custom domain URL
 3. Under **API permissions**, add Microsoft Graph delegated permission `Files.ReadWrite.AppFolder`. Admin consent is normally not required for personal use.
 4. Copy the Application (client) ID into `.env.local`:
 
@@ -41,7 +41,23 @@ The app signs in with MSAL Browser, requests only `Files.ReadWrite.AppFolder`, a
 
 ## Deploy
 
-`vite.config.ts` uses a relative base and is compatible with GitHub Pages project sites. Build with `npm run build` and publish the contents of `dist/` through your chosen private-repository Pages workflow or any HTTPS static host. Add that final URL as an SPA redirect URI before enabling OneDrive.
+The repository is configured for Cloudflare Workers Static Assets. `wrangler.jsonc` publishes only `dist/` and uses `single-page-application` not-found handling, so client-side routes fall back to `index.html`. There is no Worker server script; static asset requests retain the free-tier asset-only behavior.
+
+In the Cloudflare **Workers Builds** setup for project `lasttimeweb`, use:
+
+```text
+Build command: npm run build
+Deploy command: npx wrangler deploy
+```
+
+For a local command-line deployment:
+
+```powershell
+npm run build
+npx wrangler deploy
+```
+
+Do not put `VITE_MS_CLIENT_ID` in `wrangler.jsonc`. Configure it as a Cloudflare build variable so Vite can embed the public application ID during the build. After the first deployment, add the exact HTTPS deployment URL as an SPA redirect URI in Microsoft Entra before enabling OneDrive.
 
 ## Install
 
