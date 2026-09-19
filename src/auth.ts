@@ -4,6 +4,17 @@ export interface AuthAccountIdentity {
   name?: string
 }
 
+export const COMMON_AUTHORITY = 'https://login.microsoftonline.com/common'
+
+export function resolveCommonAuthority(authority = COMMON_AUTHORITY) {
+  const parsed = new URL(authority)
+  const path = parsed.pathname.replace(/\/+$/, '')
+  if (parsed.origin !== 'https://login.microsoftonline.com' || path !== '/common' || parsed.search || parsed.hash) {
+    throw new Error('Organizational and personal Microsoft accounts require the /common authority')
+  }
+  return COMMON_AUTHORITY
+}
+
 export function selectAccount<T>(
   redirectAccount: T | null | undefined,
   activeAccount: T | null | undefined,

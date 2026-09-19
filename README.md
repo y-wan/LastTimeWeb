@@ -24,7 +24,7 @@ npm run build
 
 No client secret is used or needed. Create a **Single-page application** registration in Microsoft Entra admin center:
 
-1. Register an app and choose the supported account type you want. `Accounts in any organizational directory and personal Microsoft accounts` works for both work and personal OneDrive.
+1. Register an app with **Accounts in any organizational directory and personal Microsoft accounts** as the supported account type (`AzureADandPersonalMicrosoftAccount`).
 2. Under **Authentication**, add a **Single-page application** redirect URI matching the exact deployed app URL, including its trailing slash:
    - Local Vite: `http://localhost:5173/`
    - Cloudflare Workers: the root `https://lasttimeweb.<account-subdomain>.workers.dev/` URL shown after deployment, including the trailing slash, or the exact custom-domain root URL
@@ -33,13 +33,17 @@ No client secret is used or needed. Create a **Single-page application** registr
 
 ```text
 VITE_MS_CLIENT_ID=00000000-0000-0000-0000-000000000000
-# Optional; defaults to the multi-tenant/personal "common" authority
-VITE_MS_AUTHORITY=https://login.microsoftonline.com/common
 ```
 
-The app signs in with MSAL Browser, requests only `Files.ReadWrite.AppFolder`, and reads/writes `last-time-data.json` under Graph `/me/drive/special/approot`. Sync runs on startup, foreground resume, local changes, manual request, and network restoration. Errors remain visible in the UI.
+The app pins MSAL Browser to `https://login.microsoftonline.com/common`, matching the organizational-and-personal account audience. It requests only the delegated `Files.ReadWrite.AppFolder` permission and reads/writes `last-time-data.json` under Graph `/me/drive/special/approot`. Organizational tenants may require user or administrator consent according to tenant policy; do not add broader Graph permissions. Sync runs on startup, foreground resume, local changes, manual request, and network restoration. Errors remain visible in the UI.
 
 MSAL always uses the deployment origin root as its redirect URI. For example, a deployment at `https://lasttimeweb.example.workers.dev` must have exactly `https://lasttimeweb.example.workers.dev/` registered as an SPA redirect URI; do not register a route or omit the trailing slash.
+
+Authentication guidance:
+
+- A `userAudience` error mentioning `/common` means the Entra registration is using the wrong supported account type. Select **Accounts in any organizational directory and personal Microsoft accounts**.
+- Personal Microsoft accounts can normally grant user consent for `Files.ReadWrite.AppFolder`.
+- A work/school account may show **admin approval required** or `AADSTS65001` when its tenant restricts user consent or unverified apps. A tenant administrator must approve the existing delegated permission, or the user can choose a personal Microsoft account. Changing to `/consumers` or requesting broader Graph permissions is not the fix.
 
 ## Deploy
 

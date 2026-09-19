@@ -2,7 +2,7 @@ import {
   BrowserCacheLocation, InteractionRequiredAuthError, PublicClientApplication,
   type AccountInfo, type Configuration
 } from '@azure/msal-browser'
-import { rootRedirectUri, selectAccount } from './auth'
+import { resolveCommonAuthority, rootRedirectUri, selectAccount } from './auth'
 import { db, nowIso } from './db'
 import { withDataOperationLock } from './operationLock'
 import {
@@ -16,7 +16,7 @@ import { syncMetaKey } from './syncStatus'
 import type { SyncDocument } from './types'
 
 const clientId = import.meta.env.VITE_MS_CLIENT_ID as string | undefined
-const authority = (import.meta.env.VITE_MS_AUTHORITY as string | undefined) || 'https://login.microsoftonline.com/common'
+const authority = resolveCommonAuthority()
 const scopes = ['Files.ReadWrite.AppFolder']
 const itemUrl = 'https://graph.microsoft.com/v1.0/me/drive/special/approot:/last-time-data.json'
 const fileUrl = 'https://graph.microsoft.com/v1.0/me/drive/special/approot:/last-time-data.json:/content'
