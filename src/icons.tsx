@@ -52,6 +52,7 @@ import deleteIcon from '@material-symbols/svg-400/rounded/delete.svg'
 import hardDrive from '@material-symbols/svg-400/rounded/hard_drive.svg'
 import wifi from '@material-symbols/svg-400/rounded/wifi.svg'
 import wifiOff from '@material-symbols/svg-400/rounded/wifi_off.svg'
+import openInNew from '@material-symbols/svg-400/rounded/open_in_new.svg'
 import { normalizeIconKey } from './iconCatalogue'
 
 const icons = {
@@ -109,7 +110,8 @@ const icons = {
   delete: deleteIcon,
   hardDrive,
   wifi,
-  wifiOff
+  wifiOff,
+  external: openInNew
 } as const
 
 export type MaterialIconName = keyof typeof icons

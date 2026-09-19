@@ -32,6 +32,11 @@ export function PalettePreview({ roles }: { roles: ReturnType<typeof resolvedPal
   </span>
 }
 
+function CopilotCredit({ text }: { text: string }) {
+  const [prefix, suffix] = text.split('GitHub Copilot')
+  return <span>{prefix}<a href="https://github.com/features/copilot" target="_blank" rel="noreferrer">GitHub Copilot</a>{suffix}</span>
+}
+
 function useSync(accountId?: string) {
   const [state, setState] = useState<SyncState>(navigator.onLine ? 'idle' : 'offline')
   const [error, setError] = useState('')
@@ -577,7 +582,8 @@ export default function App() {
             const roles = previewDark ? palette.dark : palette.light
             return <button className={`palette-card ${colorTheme === palette.id ? 'selected' : ''}`} data-palette-preview={palette.id} key={palette.id} onClick={() => void persistSettings(locale, theme, palette.id)}>
             <PalettePreview roles={roles} />
-            <span>{t(palette.id)}</span>{colorTheme === palette.id && <MaterialIcon name="check" size={18} />}
+            <span className="palette-title">{t(palette.id)}<i className="palette-baseline-probe" aria-hidden="true" /></span>
+            {colorTheme === palette.id && <span className="palette-check"><MaterialIcon name="check" size={18} /></span>}
           </button>
           })}</div></section>
           <section className="settings-card"><h2>{t('sync')}</h2>
@@ -602,13 +608,34 @@ export default function App() {
               URL.revokeObjectURL(url)
             }}><span><MaterialIcon name="download" size={22} /></span><div><strong>{t('export')}</strong><small>{t('exportHint')}</small></div></button>
           </div>{notice && <p className="success-message">{notice}</p>}
-            <div className="danger-zone">
-              <h3>{t('dangerZone')}</h3>
-              <p>{t('clearDataSummary')}</p>
-              <button className="danger-button wide" disabled={!clearEnabled} onClick={() => { setClearNotice(''); setClearStage('scope') }}>{t('clearAllData')}</button>
-              {clearDisabledReason && <small>{clearDisabledReason}</small>}
-              {clearNotice && <p className="error-message">{clearNotice}</p>}
+          </section>
+          <section className="settings-card about-card">
+            <h2>{t('aboutCredits')}</h2>
+            <p>{locale === 'en' ? <>
+              Inspired by <a href="https://apps.apple.com/app/id534982023" target="_blank" rel="noreferrer">Last Time Tracker</a> for iOS by <a href="https://sarunw.com/" target="_blank" rel="noreferrer">Sarun Wongpatcharapakorn</a>. {t('aboutCreditThanks')} {t('aboutIndependent')}
+            </> : <>
+              本应用的核心理念与许多交互设计受到 <a href="https://sarunw.com/" target="_blank" rel="noreferrer">Sarun Wongpatcharapakorn</a> 开发的 iOS 应用<a href="https://apps.apple.com/app/id534982023" target="_blank" rel="noreferrer">「上次」（Last Time Tracker）</a>启发。{t('aboutCreditThanks')}{t('aboutIndependent')}
+            </>}</p>
+            <p>{t('aboutRecommendation')} <a href="https://apps.apple.com/app/id534982023" target="_blank" rel="noreferrer">{locale === 'en' ? 'original Last Time Tracker' : '原版「上次」'}</a>{locale === 'en' ? '.' : '。'}</p>
+            <div className="about-links">
+              <a className="external-link" href="https://lasttimeapp.com/" target="_blank" rel="noreferrer">
+                <MaterialIcon name="external" size={20} /><span>{t('officialWebsite')}</span>
+              </a>
+              <a className="external-link" href="https://apps.apple.com/app/id534982023" target="_blank" rel="noreferrer">
+                <MaterialIcon name="external" size={20} /><span>{t('viewOnAppStore')}</span>
+              </a>
             </div>
+            <div className="credit-footer">
+              <MaterialIcon name="favorite" size={14} />
+              <CopilotCredit text={t('builtWithCopilot')} />
+            </div>
+          </section>
+          <section className="settings-card danger-zone">
+            <h2>{t('dangerZone')}</h2>
+            <p>{t('clearDataSummary')}</p>
+            <button className="danger-button wide" disabled={!clearEnabled} onClick={() => { setClearNotice(''); setClearStage('scope') }}>{t('clearAllData')}</button>
+            {clearDisabledReason && <small>{clearDisabledReason}</small>}
+            {clearNotice && <p className="error-message">{clearNotice}</p>}
           </section>
         </div>}
       </main>}

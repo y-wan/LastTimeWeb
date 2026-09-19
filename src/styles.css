@@ -88,9 +88,11 @@ nav button.active { color: var(--secondary-text); background: var(--secondary-co
 .segmented button { min-width: 0; overflow-wrap: anywhere; border: 0; border-radius: 12px; padding: 9px 4px; background: transparent; }
 .segmented button.active { color: var(--on-secondary-container); background: var(--secondary-container); font-weight: 850; }
 .palette-list { width: 100%; max-width: 100%; min-width: 0; contain: inline-size; display: flex; gap: 10px; overflow-x: auto; overscroll-behavior-inline: contain; padding: 2px 2px 8px; scroll-padding-inline: 2px; scroll-snap-type: x mandatory; }
-.palette-card { position: relative; flex: 0 0 132px; display: grid; gap: 8px; min-height: 112px; padding: 9px; border: 1px solid var(--outline); border-radius: 20px; background: var(--surface); text-align: left; scroll-snap-align: start; }
-.palette-card.selected { border: 2px solid var(--primary); padding: 8px; }
-.palette-card > svg { position: absolute; right: 9px; bottom: 9px; color: var(--primary); }
+.palette-card { position: relative; flex: 0 0 132px; display: grid; grid-template-rows: 62px 22px; gap: 8px; min-height: 112px; padding: 8px; border: 2px solid transparent; border-radius: 20px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--outline); text-align: left; scroll-snap-align: start; }
+.palette-card.selected { border-color: var(--primary); box-shadow: none; }
+.palette-title { align-self: start; height: 22px; padding-right: 24px; line-height: 22px; }
+.palette-baseline-probe { display: inline-block; width: 0; height: 0; vertical-align: baseline; }
+.palette-check { position: absolute; right: 8px; bottom: 8px; display: grid; place-items: center; width: 20px; height: 22px; color: var(--primary); pointer-events: none; }
 .palette-preview { position: relative; height: 62px; display: block; padding: 7px; border-radius: 13px; border: 1px solid var(--outline); overflow: hidden; }
 .palette-preview i { position: absolute; display: block; border-radius: 999px; }
 .palette-preview .preview-surface { inset: 7px 34px 7px 7px; border: 1px solid; border-radius: 9px; }
@@ -111,9 +113,17 @@ nav button.active { color: var(--secondary-text); background: var(--secondary-co
 .data-action div { min-width: 0; display: grid; gap: 3px; }
 .data-action strong, .data-action small { min-width: 0; overflow-wrap: anywhere; }
 .data-action small { color: var(--muted); }
-.danger-zone { display: grid; gap: 9px; margin-top: 18px; padding-top: 17px; border-top: 1px solid var(--outline); }
-.danger-zone h3, .danger-zone p { margin: 0; }
-.danger-zone h3 { color: var(--danger); font-size: .9rem; }
+.about-card { display: grid; gap: 12px; }
+.about-card p { margin: 0; color: var(--muted); line-height: 1.55; }
+.about-card p a { color: var(--secondary-text); font-weight: 750; text-underline-offset: 2px; }
+.about-links { display: flex; flex-wrap: wrap; gap: 8px; }
+.external-link { width: fit-content; min-height: 44px; display: inline-flex; align-items: center; gap: 8px; padding: 9px 13px; border: 1px solid var(--outline); border-radius: 14px; color: var(--secondary-text); background: var(--secondary-container); font-weight: 800; text-decoration: none; }
+.credit-footer { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: .78rem; }
+.credit-footer .material-icon { flex: none; color: var(--primary); }
+.credit-footer a { color: inherit; font-weight: 750; text-underline-offset: 2px; }
+.danger-zone { display: grid; gap: 9px; }
+.danger-zone > h2, .danger-zone p { margin: 0; }
+.danger-zone > h2 { color: var(--danger); }
 .danger-zone p, .danger-zone small { color: var(--muted); }
 .danger-button { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 11px 17px; border: 1px solid var(--danger); border-radius: 16px; color: var(--danger); background: var(--surface); font-weight: 850; }
 .danger-button:disabled { opacity: .45; cursor: not-allowed; }

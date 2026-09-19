@@ -8,4 +8,11 @@ describe('translation parity', () => {
       for (const value of Object.values(locale)) expect(value.trim()).not.toBe('')
     }
   })
+
+  it('uses the official iOS product name without advertising an unreleased Android import source', () => {
+    expect(translations.en.importHint).toBe('Import items and history exported by this app or Last Time Tracker for iOS.')
+    expect(translations['zh-CN'].importHint).toBe('从本应用导出的 CSV 或 iOS 版「上次」导入事项和历史记录。')
+    expect(translations.en.importHint).not.toContain('Android')
+    expect(translations['zh-CN'].importHint).not.toContain('Android')
+  })
 })

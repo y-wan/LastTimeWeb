@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b --pretty false",
     "lint": "eslint .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:layout": "playwright test e2e/palette-layout.spec.ts"
   },
   "dependencies": {
     "@azure/msal-browser": "^4.22.0",

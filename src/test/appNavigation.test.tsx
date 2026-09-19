@@ -93,4 +93,37 @@ describe('full-screen navigation', () => {
     expect(clear.hasAttribute('disabled')).toBe(true)
     expect(screen.getByText('Sign in to Microsoft to clear this device and OneDrive.')).not.toBeNull()
   })
+
+  it('credits the original iOS app with a safe external link before the danger zone', async () => {
+    render(<App />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Settings' }))
+    const original = await screen.findByRole('link', { name: 'Last Time Tracker' })
+    const author = screen.getByRole('link', { name: 'Sarun Wongpatcharapakorn' })
+    const website = await screen.findByRole('link', { name: 'Official website' })
+    const appStore = screen.getByRole('link', { name: 'View on the App Store' })
+    const recommendation = screen.getByRole('link', { name: 'original Last Time Tracker' })
+    const copilot = screen.getByRole('link', { name: 'GitHub Copilot' })
+    expect(original.getAttribute('href')).toBe('https://apps.apple.com/app/id534982023')
+    expect(author.getAttribute('href')).toBe('https://sarunw.com/')
+    expect(website.getAttribute('href')).toBe('https://lasttimeapp.com/')
+    expect(appStore.getAttribute('href')).toBe('https://apps.apple.com/app/id534982023')
+    expect(recommendation.getAttribute('href')).toBe('https://apps.apple.com/app/id534982023')
+    expect(copilot.getAttribute('href')).toBe('https://github.com/features/copilot')
+    for (const link of [original, author, website, appStore, recommendation, copilot]) {
+      expect(link.getAttribute('target')).toBe('_blank')
+      expect(link.getAttribute('rel')).toBe('noreferrer')
+    }
+    expect(screen.getByText(/independent, unofficial implementation/)).not.toBeNull()
+    expect(screen.getByText(/encourage you to support and use the/)).not.toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: '简体中文' }))
+    expect((await screen.findByRole('link', { name: '官方网站' })).getAttribute('href')).toBe('https://lasttimeapp.com/')
+    expect(screen.getByRole('link', { name: '在 App Store 查看' }).getAttribute('href')).toBe('https://apps.apple.com/app/id534982023')
+    expect(screen.getByRole('link', { name: '原版「上次」' }).getAttribute('href')).toBe('https://apps.apple.com/app/id534982023')
+    expect(document.querySelector('.credit-footer')?.textContent).toBe('与 GitHub Copilot 一起打造')
+
+    const cards = [...document.querySelectorAll('.settings-card')]
+    expect(cards.at(-2)?.classList.contains('about-card')).toBe(true)
+    expect(cards.at(-1)?.classList.contains('danger-zone')).toBe(true)
+  })
 })

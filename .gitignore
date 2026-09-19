@@ -8,3 +8,4 @@ vite.config.d.ts
 !.env.example
 *.local
 .wrangler/
+test-results/

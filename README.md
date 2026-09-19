@@ -1,6 +1,45 @@
+English | [简体中文](README.zh-CN.md)
+
 # Last Time
 
 Last Time is an offline-first, installable React PWA for remembering when you last did something. It stores data locally in IndexedDB and can optionally sync an app-private JSON document through Microsoft Graph's OneDrive App Folder.
+
+## Use the app
+
+Open the live PWA at **[https://lasttimeweb.feliciameow.workers.dev/](https://lasttimeweb.feliciameow.workers.dev/)**.
+
+### Install on iPhone or iPad
+
+1. Open the exact live URL in Safari.
+2. Tap **Share**, then **Add to Home Screen**.
+3. Launch Last Time from the installed Home Screen icon.
+4. When the app shows **New version available**, choose **Update now**. The app waits for the new Service Worker to take control before reloading and shows a retryable error instead of hanging if activation times out.
+
+### Install on Android
+
+1. Open the live URL in Chrome or Edge.
+2. Choose **Install app** or **Add to Home screen**.
+3. Launch Last Time from the installed app icon.
+
+### Optional cross-device sync
+
+Data stays in this device's IndexedDB while signed out. To synchronize devices, sign in with the same personal or organizational Microsoft account on each device. The app uses only the account's private OneDrive App Folder and the delegated `Files.ReadWrite.AppFolder` permission; it does not request access to the rest of OneDrive. An organizational tenant may require administrator consent.
+
+Sync runs while the app is open: at startup, foreground resume, local changes/imports, manual retry, and network restoration. Reliable closed-app/background sync is not claimed or required.
+
+### Migrate from Last Time Tracker for iOS
+
+Export a CSV from [Last Time Tracker for iOS](https://apps.apple.com/app/id534982023), then open **Settings → Data → Import CSV** in this app. In the original legacy format, `Event` identifies the item and a generic `Note` on a row with `Timestamp` or `Date`/`Time` is treated as that individual history record's note.
+
+If you need to replace a previous malformed or duplicate import:
+
+1. Close Last Time on every other device.
+2. On one device, sign in and go online.
+3. Open **Settings → Data → Clear all data**, complete both confirmations, and wait for the OneDrive deletion sync to succeed.
+4. Import the CSV and sync again.
+5. Reopen the other devices only after that sync completes.
+
+This permanently removes existing item/history data but keeps settings and Microsoft sign-in. The app is local-first, has no application backend, and includes no analytics. OneDrive sync is optional.
 
 ## Run locally
 
@@ -17,6 +56,7 @@ Production checks:
 npm run lint
 npm run typecheck
 npm test
+npm run test:layout
 npm run build
 ```
 
@@ -81,9 +121,11 @@ Settings supports:
 
 - Existing iOS CSV columns `Event`, `Note`, `Date`, `Time`, and `Timestamp`.
 - Enriched portable columns `Event`, `Event Note`, `Icon`, `Color`, `Event Created`, `Occurrence`, and `Occurrence Note`.
-- Common Android-style aliases including `Name`/`title`, `createdAt`, `eventId`, `occurrenceId`, `occurredAt`, and occurrence timestamps.
+- Common legacy aliases including `Name`/`title`, `createdAt`, `eventId`, `occurrenceId`, `occurredAt`, and occurrence timestamps.
 
 Exports use the enriched portable format and preserve event notes, icon, color, event creation time, occurrence time, and occurrence notes. Future occurrence timestamps are ignored during import and blocked in the editor.
+
+For legacy iOS rows containing an occurrence timestamp or `Date`/`Time`, a generic `Note` column is treated as the occurrence note. Event-level notes use explicit aliases such as `Event Note` or `eventNote`. Rows without an explicit `eventId` are grouped by trimmed event name, preventing one event from being duplicated merely because each occurrence has a different note.
 
 If an older iOS CSV created duplicate same-name events, update to this version, open **Settings → Data → Clear all data**, complete both confirmation steps while signed in and online, wait for the successful OneDrive sync, then import the CSV again and sync before reopening other devices. Clearing keeps app settings and Microsoft sign-in, but permanently tombstones all event/history records locally and in OneDrive. Future occurrence timestamps are ignored during import and blocked in the editor.
 
@@ -92,6 +134,22 @@ If an older iOS CSV created duplicate same-name events, update to this version, 
 Events and occurrences use stable UUIDs and ISO `updatedAt` values. Deletions are retained as tombstones. Merging is by UUID and chooses the latest update; equal timestamps prefer deletion, then use a canonical property-order-independent record comparison. The same occurrence UUID is never duplicated, while separate repeated occurrences remain separate records.
 
 OneDrive uploads use the DriveItem ETag with `If-Match` (or `If-None-Match` when creating the file). A stale writer re-reads local and remote data, merges, and retries up to three times instead of overwriting a newer file. Local mutations and sync operations share a Web Lock where supported, with an in-process fallback, so a stale sync snapshot cannot overwrite a queued mutation. Conflict ordering still depends on device-generated wall-clock `updatedAt` values, so substantial clock skew can make an older real-world edit appear newer.
+
+## Acknowledgements
+
+Last Time is inspired by [Last Time Tracker for iOS](https://apps.apple.com/app/id534982023) (`上次 - 跟踪您的重要事项` in the Chinese App Store) by [Sarun Wongpatcharapakorn](https://sarunw.com/). Visit the original product's [official website](https://lasttimeapp.com/) or [App Store listing](https://apps.apple.com/app/id534982023). Thank you to its creator for the thoughtful, simple way to remember when things last happened.
+
+If you only use iPhone and iPad and do not need cross-platform sync with Android, we encourage you to support and use the [original Last Time Tracker](https://apps.apple.com/app/id534982023).
+
+This repository is an independent, unofficial implementation and is not endorsed by or affiliated with the original developer. It was created to bring this history-first workflow to an installable web app shared across iOS and Android devices and to add OneDrive sync—cross-platform and synchronization capabilities not provided by the referenced iOS app in this workflow. No source code or visual assets from that app are included.
+
+## AI-assisted development
+
+This project was developed with substantial assistance from [GitHub Copilot](https://github.com/features/copilot), primarily using the GPT-5.6 Sol model. AI assistance contributed to architecture, implementation, testing, documentation, and UI validation. Product direction and final acceptance remained human-directed. This project is not sponsored or endorsed by GitHub.
+
+## License
+
+The original code in this repository is available under the [MIT License](LICENSE), copyright © 2026 y-wan. Google Material Symbols remain available under their Apache-2.0 license. The acknowledgement of Last Time Tracker is nominative credit for product inspiration only and does not grant rights to that app's code, branding, or assets.
 
 ## Platform notes and licenses
 
