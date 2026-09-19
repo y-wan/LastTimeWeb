@@ -48,6 +48,8 @@ main { padding: 0 16px 24px; }
 .sync-badge { display: inline-flex; align-items: center; gap: 5px; padding: 7px 10px; border-radius: 999px; color: var(--teal); background: color-mix(in srgb, var(--teal) 12%, transparent); font-size: .75rem; font-weight: 700; }
 .sync-badge.offline, .sync-badge.error { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
 .sync-badge.syncing { animation: pulse 1.2s infinite; }
+.sync-control { display: grid; justify-items: end; gap: 5px; }
+.sync-cta { border: 0; padding: 2px 5px; color: var(--primary); background: transparent; font-size: .76rem; font-weight: 800; }
 @keyframes pulse { 50% { opacity: .55; } }
 .toolbar { display: flex; gap: 10px; margin-bottom: 16px; }
 .search { flex: 1; display: flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 0 13px; }

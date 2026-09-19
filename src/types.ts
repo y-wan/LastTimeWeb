@@ -37,7 +37,8 @@ export interface SettingsRecord {
 }
 
 export interface SyncMetaRecord {
-  key: 'sync'
+  key: string
+  accountId: string
   lastSyncedAt?: string
   error?: string
 }

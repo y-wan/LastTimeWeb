@@ -12,6 +12,7 @@ import {
   type RemoteIdentity,
   type RemoteSnapshot
 } from './syncEngine'
+import { syncMetaKey } from './syncStatus'
 import type { SyncDocument } from './types'
 
 const clientId = import.meta.env.VITE_MS_CLIENT_ID as string | undefined
@@ -181,7 +182,12 @@ async function writeRemote(accessToken: string, document: SyncDocument, expected
   if (!response.ok) throw new Error(`OneDrive upload failed (${response.status}): ${await response.text()}`)
 }
 
-let activeSync: Promise<string | undefined> | undefined
+export interface SuccessfulSync {
+  accountId: string
+  completedAt: string
+}
+
+let activeSync: Promise<SuccessfulSync | undefined> | undefined
 
 export function synchronize() {
   if (activeSync) return activeSync
@@ -203,8 +209,12 @@ export function synchronize() {
         writeRemote: (document, expected) => writeRemote(accessToken, document, expected),
         now: nowIso
       })
-      await db.syncMeta.put({ key: 'sync', lastSyncedAt: result.completedAt })
-      return result.completedAt
+      await db.syncMeta.put({
+        key: syncMetaKey(account.homeAccountId),
+        accountId: account.homeAccountId,
+        lastSyncedAt: result.completedAt
+      })
+      return { accountId: account.homeAccountId, completedAt: result.completedAt }
     })
   })().finally(() => { activeSync = undefined })
   return activeSync

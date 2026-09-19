@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Download, History, Plus, Search, Settings, Upload, Wifi, WifiOff, X } from 'lucide-react'
+import { Download, HardDrive, History, Plus, Search, Settings, Upload, Wifi, WifiOff, X } from 'lucide-react'
 import { addOccurrence, createEvent, db, deleteEvent, deleteOccurrence, importRecords, updateEvent, updateOccurrence } from './db'
 import { exportCsv, importCsv } from './csv'
 import { formatElapsed, formatSyncTime, historyGroup, toLocalInputValue } from './date'
@@ -10,6 +10,7 @@ import { EventIcon } from './icons'
 import { translator } from './i18n'
 import { currentAccount, isSyncConfigured, signIn, signOut, subscribeAuth, synchronize, type AuthSnapshot } from './onedrive'
 import { activatePwaUpdate } from './pwaUpdate'
+import { currentAccountLastSync, syncMetaKey, syncPresentation, type SyncPresentation } from './syncStatus'
 import type { EventRecord, Locale, OccurrenceRecord, SyncState, ThemeMode } from './types'
 import { updateStore, type UpdateSnapshot } from './updateStore'
 
@@ -20,10 +21,10 @@ const EMPTY_OCCURRENCES: OccurrenceRecord[] = []
 type EventDraft = Pick<EventRecord, 'name' | 'note' | 'icon' | 'color'>
 const emptyDraft: EventDraft = { name: '', note: '', icon: 'clock', color: COLORS[0] }
 
-function useSync() {
+function useSync(accountId?: string) {
   const [state, setState] = useState<SyncState>(navigator.onLine ? 'idle' : 'offline')
   const [error, setError] = useState('')
-  const [lastSuccessfulSyncAt, setLastSuccessfulSyncAt] = useState<string>()
+  const [lastSuccessfulSync, setLastSuccessfulSync] = useState<{ accountId: string; completedAt: string }>()
   const timer = useRef<number | undefined>(undefined)
 
   const run = useCallback(async () => {
@@ -34,12 +35,18 @@ function useSync() {
       setError('')
       const completedAt = await synchronize()
       setState('idle')
-      if (completedAt) setLastSuccessfulSyncAt(completedAt)
+      if (completedAt) setLastSuccessfulSync(completedAt)
     } catch (cause) {
       setState(navigator.onLine ? 'error' : 'offline')
       setError(cause instanceof Error ? cause.message : String(cause))
     }
   }, [])
+
+  useEffect(() => {
+    setError('')
+    setState(navigator.onLine ? 'idle' : 'offline')
+    setLastSuccessfulSync((current) => current?.accountId === accountId ? current : undefined)
+  }, [accountId])
 
   const schedule = useCallback(() => {
     window.clearTimeout(timer.current)
@@ -62,7 +69,7 @@ function useSync() {
     }
   }, [run])
 
-  return { state, error, lastSuccessfulSyncAt, run, schedule }
+  return { state, error, lastSuccessfulSync, run, schedule }
 }
 
 function EventForm({ initial, t, onSave, onClose }: {
@@ -181,7 +188,16 @@ export default function App() {
   const [update, setUpdate] = useState<UpdateSnapshot>({ available: false, applying: false })
   const [updateDismissed, setUpdateDismissed] = useState(false)
   const t = useMemo(() => translator(locale), [locale])
-  const sync = useSync()
+  const accountId = auth.account?.homeAccountId
+  const syncMeta = useLiveQuery(() => accountId ? db.syncMeta.get(syncMetaKey(accountId)) : undefined, [accountId])
+  const lastSuccessfulSyncAt = currentAccountLastSync(accountId, syncMeta)
+  const sync = useSync(accountId)
+  const syncStatus = syncPresentation({
+    authReady: auth.ready,
+    accountId,
+    syncState: sync.state,
+    lastSuccessfulSyncAt
+  })
 
   useEffect(() => {
     if (settings) { setLocale(settings.locale); setTheme(settings.theme) }
@@ -196,11 +212,14 @@ export default function App() {
     if (snapshot.available && !snapshot.error) setUpdateDismissed(false)
   }), [])
   useEffect(() => {
-    if (!sync.lastSuccessfulSyncAt) return
-    setSyncNotice(`${t('syncSucceeded')} · ${formatSyncTime(sync.lastSuccessfulSyncAt, locale)}`)
+    if (!sync.lastSuccessfulSync || sync.lastSuccessfulSync.accountId !== accountId) {
+      setSyncNotice('')
+      return
+    }
+    setSyncNotice(`${t('syncSucceeded')} · ${formatSyncTime(sync.lastSuccessfulSync.completedAt, locale)}`)
     const timer = window.setTimeout(() => setSyncNotice(''), 4_000)
     return () => window.clearTimeout(timer)
-  }, [locale, sync.lastSuccessfulSyncAt, t])
+  }, [accountId, locale, sync.lastSuccessfulSync, t])
 
   const mutate = useCallback(() => sync.schedule(), [sync])
   const latestByEvent = useMemo(() => {
@@ -255,7 +274,10 @@ export default function App() {
     <div className="app-shell">
       <header>
         <div><h1>{t('appName')}</h1><p>{t('subtitle')}</p></div>
-        <SyncBadge state={sync.state} error={sync.error} t={t} />
+        <div className="sync-control">
+          <SyncBadge status={syncStatus} error={auth.error || sync.error} t={t} />
+          {syncStatus === 'deviceOnly' && isSyncConfigured() && <button className="sync-cta" onClick={() => void connectMicrosoft()}>{t('signIn')}</button>}
+        </div>
       </header>
       <main>
         {tab === 'events' && <>
@@ -295,9 +317,9 @@ export default function App() {
           <section><h2>{t('appearance')}</h2><div className="segmented">{(['system', 'light', 'dark'] as ThemeMode[]).map((value) => <button className={theme === value ? 'active' : ''} key={value} onClick={() => void persistSettings(locale, value)}>{t(value)}</button>)}</div></section>
           <section><h2>{t('sync')}</h2>
             {!isSyncConfigured() ? <p className="warning">{t('clientIdMissing')}</p> : !auth.ready ? <p>{t('checkingAccount')}</p> : auth.account ? <>
-              <p className="connected">{t('signedIn')}<strong>{identity?.primary}</strong>{identity?.secondary && <small>{identity.secondary}</small>}</p>
-              <div className="settings-actions"><button className="primary" disabled={sync.state === 'syncing'} onClick={() => void sync.run()}>{sync.state === 'syncing' ? t('syncing') : t('syncNow')}</button><button className="secondary" onClick={() => void disconnectMicrosoft()}>{t('signOut')}</button></div>
-            </> : <button className="primary wide" onClick={() => void connectMicrosoft()}>{t('signIn')}</button>}
+              <p className="connected">{t('signedIn')}<strong>{identity?.primary}</strong>{identity?.secondary && <small>{identity.secondary}</small>}<small>{syncStatusLabel(syncStatus, t)}</small></p>
+              <div className="settings-actions"><button className="primary" disabled={sync.state === 'syncing' || sync.state === 'offline'} onClick={() => void sync.run()}>{sync.state === 'syncing' ? t('syncing') : sync.state === 'error' ? t('retry') : t('syncNow')}</button><button className="secondary" onClick={() => void disconnectMicrosoft()}>{t('signOut')}</button></div>
+            </> : <><p>{t('deviceOnly')}</p><button className="primary wide" onClick={() => void connectMicrosoft()}>{t('signIn')}</button></>}
             {(auth.error || sync.error) && <p className="error-message">{auth.error || sync.error}</p>}
           </section>
           <section><h2>{t('data')}</h2><div className="settings-actions">
@@ -338,7 +360,17 @@ export default function App() {
   )
 }
 
-function SyncBadge({ state, error, t }: { state: SyncState; error: string; t: ReturnType<typeof translator> }) {
-  const label = state === 'offline' ? t('offline') : state === 'syncing' ? t('syncing') : state === 'error' ? t('syncError') : t('synced')
-  return <span className={`sync-badge ${state}`} title={error}>{state === 'offline' ? <WifiOff size={14} /> : <Wifi size={14} />}{label}</span>
+function syncStatusLabel(status: SyncPresentation, t: ReturnType<typeof translator>) {
+  if (status === 'checking') return t('checkingAccount')
+  if (status === 'deviceOnly') return t('deviceOnly')
+  if (status === 'notSynced') return t('notSyncedYet')
+  if (status === 'offline') return t('offlineWaiting')
+  if (status === 'syncing') return t('syncing')
+  if (status === 'error') return t('syncError')
+  return t('synced')
+}
+
+function SyncBadge({ status, error, t }: { status: SyncPresentation; error: string; t: ReturnType<typeof translator> }) {
+  const Icon = status === 'deviceOnly' ? HardDrive : status === 'offline' ? WifiOff : Wifi
+  return <span className={`sync-badge ${status}`} title={error}><Icon size={14} />{syncStatusLabel(status, t)}</span>
 }
