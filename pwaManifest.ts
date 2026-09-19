@@ -1,6 +1,7 @@
 export const pwaAssets = [
   'app-icon.svg',
   'app-icon-maskable.svg',
+  'apple-touch-icon-20260919.png',
   'apple-touch-icon.png',
   'apple-touch-icon-180.png',
   'app-icon-192.png',

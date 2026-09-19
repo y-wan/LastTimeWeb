@@ -12,8 +12,18 @@ export default defineConfig({
       includeAssets: pwaAssets,
       manifest: false,
       workbox: {
-        navigateFallback: 'index.html',
-        globPatterns: ['**/*.{js,css,html,svg,woff2}']
+        navigateFallback: null,
+        globPatterns: ['**/*.{js,css,html,svg,woff2}'],
+        runtimeCaching: [{
+          urlPattern: ({ request }) => request.mode === 'navigate',
+          handler: 'NetworkFirst',
+          options: {
+            cacheName: 'last-time-pages',
+            precacheFallback: {
+              fallbackURL: 'index.html'
+            }
+          }
+        }]
       }
     })
   ],
