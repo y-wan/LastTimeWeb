@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { elapsedParts, formatSyncTime, historyGroup } from '../date'
+import { elapsedParts, formatSyncDateTime, formatSyncTime, historyGroup } from '../date'
 
 describe('elapsed date behavior', () => {
   it('uses actual hours and minutes within the same calendar day', () => {
@@ -22,5 +22,12 @@ describe('elapsed date behavior', () => {
   it('formats a successful sync as a local time without a permanent date', () => {
     const iso = '2026-09-19T05:23:48.000Z'
     expect(formatSyncTime(iso, 'en')).toBe(new Intl.DateTimeFormat('en', { timeStyle: 'medium' }).format(new Date(iso)))
+  })
+
+  it('formats the Settings last-sync value as a full local date and time', () => {
+    const iso = '2026-09-19T05:23:48.000Z'
+    expect(formatSyncDateTime(iso, 'zh-CN')).toBe(
+      new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(iso))
+    )
   })
 })

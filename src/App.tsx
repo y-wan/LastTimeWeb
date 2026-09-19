@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { Download, HardDrive, History, Plus, Search, Settings, Upload, Wifi, WifiOff, X } from 'lucide-react'
 import { addOccurrence, createEvent, db, deleteEvent, deleteOccurrence, importRecords, updateEvent, updateOccurrence } from './db'
 import { exportCsv, importCsv } from './csv'
-import { formatElapsed, formatSyncTime, historyGroup, toLocalInputValue } from './date'
+import { formatElapsed, formatSyncDateTime, formatSyncTime, historyGroup, toLocalInputValue } from './date'
 import { accountIdentity } from './auth'
 import { iconCatalogue } from './iconCatalogue'
 import { EventIcon } from './icons'
@@ -317,7 +317,7 @@ export default function App() {
           <section><h2>{t('appearance')}</h2><div className="segmented">{(['system', 'light', 'dark'] as ThemeMode[]).map((value) => <button className={theme === value ? 'active' : ''} key={value} onClick={() => void persistSettings(locale, value)}>{t(value)}</button>)}</div></section>
           <section><h2>{t('sync')}</h2>
             {!isSyncConfigured() ? <p className="warning">{t('clientIdMissing')}</p> : !auth.ready ? <p>{t('checkingAccount')}</p> : auth.account ? <>
-              <p className="connected">{t('signedIn')}<strong>{identity?.primary}</strong>{identity?.secondary && <small>{identity.secondary}</small>}<small>{syncStatusLabel(syncStatus, t)}</small></p>
+              <p className="connected">{t('signedIn')}<strong>{identity?.primary}</strong>{identity?.secondary && <small>{identity.secondary}</small>}<small>{syncStatusLabel(syncStatus, t)}</small><small>{lastSuccessfulSyncAt ? `${t('lastSynced')}: ${formatSyncDateTime(lastSuccessfulSyncAt, locale)}` : t('neverSynced')}</small></p>
               <div className="settings-actions"><button className="primary" disabled={sync.state === 'syncing' || sync.state === 'offline'} onClick={() => void sync.run()}>{sync.state === 'syncing' ? t('syncing') : sync.state === 'error' ? t('retry') : t('syncNow')}</button><button className="secondary" onClick={() => void disconnectMicrosoft()}>{t('signOut')}</button></div>
             </> : <><p>{t('deviceOnly')}</p><button className="primary wide" onClick={() => void connectMicrosoft()}>{t('signIn')}</button></>}
             {(auth.error || sync.error) && <p className="error-message">{auth.error || sync.error}</p>}

@@ -40,3 +40,7 @@ export function toLocalInputValue(iso: string) {
 export function formatSyncTime(iso: string, locale: Locale) {
   return new Intl.DateTimeFormat(locale, { timeStyle: 'medium' }).format(new Date(iso))
 }
+
+export function formatSyncDateTime(iso: string, locale: Locale) {
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(iso))
+}
