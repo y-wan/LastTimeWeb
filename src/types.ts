@@ -1,0 +1,43 @@
+export type ThemeMode = 'system' | 'light' | 'dark'
+export type Locale = 'en' | 'zh-CN'
+export type SyncState = 'offline' | 'idle' | 'syncing' | 'error'
+
+export interface EventRecord {
+  id: string
+  name: string
+  note: string
+  icon: string
+  color: string
+  createdAt: string
+  updatedAt: string
+  deletedAt?: string
+}
+
+export interface OccurrenceRecord {
+  id: string
+  eventId: string
+  occurredAt: string
+  note: string
+  createdAt: string
+  updatedAt: string
+  deletedAt?: string
+}
+
+export interface SyncDocument {
+  version: 1
+  updatedAt: string
+  events: EventRecord[]
+  occurrences: OccurrenceRecord[]
+}
+
+export interface SettingsRecord {
+  key: 'settings'
+  locale: Locale
+  theme: ThemeMode
+}
+
+export interface SyncMetaRecord {
+  key: 'sync'
+  lastSyncedAt?: string
+  error?: string
+}
