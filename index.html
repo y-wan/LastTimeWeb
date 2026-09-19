@@ -10,16 +10,31 @@
     <meta name="apple-mobile-web-app-title" content="Last Time" />
     <script>
       (() => {
+        const localeKey = 'last-time-app-locale'
         const primaryLanguage = navigator.languages?.[0] || navigator.language || 'en'
-        const isChinese = primaryLanguage.toLowerCase().startsWith('zh')
+        let persistedLocale
+        try {
+          persistedLocale = localStorage.getItem(localeKey)
+        } catch (error) {
+          console.warn('Unable to read the persisted app language.', error)
+        }
+        const locale = persistedLocale === 'zh-CN' || persistedLocale === 'en'
+          ? persistedLocale
+          : primaryLanguage.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en'
+        const isChinese = locale === 'zh-CN'
         const name = isChinese ? '上次' : 'Last Time'
-        document.documentElement.lang = isChinese ? 'zh-CN' : 'en'
+        document.documentElement.lang = locale
         document.title = name
         document.querySelector('meta[name="apple-mobile-web-app-title"]').content = name
         const manifest = document.createElement('link')
         manifest.rel = 'manifest'
         manifest.href = isChinese ? './manifest.zh-CN.webmanifest' : './manifest.en.webmanifest'
         document.head.appendChild(manifest)
+        try {
+          localStorage.setItem(localeKey, locale)
+        } catch (error) {
+          console.warn('Unable to persist the app language for install metadata.', error)
+        }
       })()
     </script>
     <link rel="icon" href="./app-icon.svg" />

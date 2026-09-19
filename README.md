@@ -57,7 +57,7 @@ Open the live PWA at **[https://lasttimeweb.feliciameow.workers.dev/](https://la
 3. Launch Last Time from the installed Home Screen icon.
 4. When the app shows **New version available**, choose **Update now**. The app waits for the new Service Worker to take control before reloading and shows a retryable error instead of hanging if activation times out.
 
-Install metadata is selected from the browser's primary language before the app starts: Chinese locales use `上次`; other locales use `Last Time`. Existing Home Screen icons may wait for the browser's installed-manifest refresh; remove and add the icon again to verify a name change immediately.
+On first use, install metadata follows the browser's primary language. After you choose a language in Last Time, that effective app language drives the page title and install manifest on the current and future loads: Chinese uses `上次`; other languages use `Last Time`. Existing Home Screen icons may wait for the browser's installed-manifest refresh; remove and add the icon again to verify a name change immediately.
 
 ### Install on Android
 

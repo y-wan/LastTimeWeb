@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { addOccurrence, createEvent, db, deleteEvent, deleteOccurrence, importRecords, tombstoneAllData, updateEvent, updateOccurrence } from './db'
 import { exportCsv, importCsv } from './csv'
 import { averageInterval, formatDuration, formatElapsed, formatInterval, formatSyncDateTime, formatSyncTime, historyGroup, toLocalInputValue } from './date'
-import { applyLocalizedAppMetadata } from './appMetadata'
+import { applyLocalizedAppMetadata, initialAppLocale } from './appMetadata'
 import { accountIdentity } from './auth'
 import { accessibleForeground } from './colorContrast'
 import { canClearAllData, clearAllDataWorkflow, CloudDeletionPendingError } from './clearData'
@@ -336,7 +336,7 @@ export default function App() {
   const events = useLiveQuery(() => db.events.filter((event) => !event.deletedAt).toArray(), []) ?? EMPTY_EVENTS
   const occurrences = useLiveQuery(() => db.occurrences.filter((item) => !item.deletedAt).toArray(), []) ?? EMPTY_OCCURRENCES
   const settings = useLiveQuery(() => db.settings.get('settings'), [])
-  const [locale, setLocale] = useState<Locale>(() => (navigator.language.startsWith('zh') ? 'zh-CN' : 'en'))
+  const [locale, setLocale] = useState<Locale>(() => initialAppLocale(navigator.language))
   const [theme, setTheme] = useState<ThemeMode>('system')
   const [colorTheme, setColorTheme] = useState<ColorTheme>('vitalOrange')
   const [systemDark, setSystemDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
