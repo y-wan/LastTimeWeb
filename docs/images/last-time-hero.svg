@@ -14,11 +14,11 @@
   <text x="358" y="164" fill="#25211F" font-family="Inter, ui-rounded, system-ui, sans-serif" font-size="82" font-weight="760" letter-spacing="-3">Last Time</text>
   <text x="362" y="222" fill="#655E59" font-family="Inter, system-ui, sans-serif" font-size="28" font-weight="500">Remember when it last happened.</text>
   <g transform="translate(362 256)">
-    <rect width="138" height="38" rx="19" fill="#F9DDD4"/>
+    <rect width="150" height="38" rx="19" fill="#F9DDD4"/>
     <circle cx="24" cy="19" r="7" fill="#D65A3A"/>
     <text x="42" y="25" fill="#8D301D" font-family="Inter, system-ui, sans-serif" font-size="17" font-weight="650">Offline first</text>
-    <rect x="152" width="188" height="38" rx="19" fill="#D5F2EE"/>
-    <circle cx="176" cy="19" r="7" fill="#0F8C80"/>
-    <text x="194" y="25" fill="#0B5F57" font-family="Inter, system-ui, sans-serif" font-size="17" font-weight="650">Optional OneDrive sync</text>
+    <rect x="164" width="244" height="38" rx="19" fill="#D5F2EE"/>
+    <circle cx="188" cy="19" r="7" fill="#0F8C80"/>
+    <text x="206" y="25" fill="#0B5F57" font-family="Inter, system-ui, sans-serif" font-size="17" font-weight="650">Optional OneDrive sync</text>
   </g>
 </svg>

@@ -1,11 +1,18 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { applyLocalizedAppMetadata, installedAppName } from '../appMetadata'
+import { applyLocalizedAppMetadata, installedAppName, isChineseLocale } from '../appMetadata'
 
 beforeEach(() => {
   document.head.innerHTML = '<title>Fallback</title><meta name="apple-mobile-web-app-title" content="Fallback" />'
 })
 
 describe('localized installed app metadata', () => {
+  it('detects Chinese language tags without treating other locales as Chinese', () => {
+    expect(isChineseLocale('zh-CN')).toBe(true)
+    expect(isChineseLocale('zh-TW')).toBe(true)
+    expect(isChineseLocale('en-US')).toBe(false)
+    expect(isChineseLocale(undefined)).toBe(false)
+  })
+
   it('uses the Chinese name for zh-CN and generic zh system languages', () => {
     expect(installedAppName('zh-CN')).toBe('上次')
     expect(installedAppName('zh-TW')).toBe('上次')

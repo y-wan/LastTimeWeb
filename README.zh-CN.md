@@ -1,7 +1,7 @@
 [English](README.md) | 简体中文
 
 <p align="center">
-  <img src="docs/images/last-time-hero.svg" width="900" alt="Last Time——记住某件事上次发生的时间" />
+  <img src="docs/images/last-time-hero.zh-CN.svg" width="900" alt="上次——记住每件事上次发生的时间" />
 </p>
 
 <p align="center">
@@ -26,21 +26,21 @@ Last Time 是一款离线优先、可安装的 PWA，用来记住某件事上次
 <table>
   <tr>
     <td width="50%" align="center">
-      <img src="docs/images/home-light.png" width="100%" alt="浅色 Ember 主题主页，展示三个合成示例事项" /><br />
+      <img src="docs/images/home-light.zh-CN.png" width="100%" alt="浅色炽焰主题主页，展示三个合成示例事项" /><br />
       <sub><strong>一眼看清历史。</strong>按本地日历日计算经过时间，并显示最近记录。</sub>
     </td>
     <td width="50%" align="center">
-      <img src="docs/images/editor-dark.png" width="100%" alt="深色事项编辑器，展示实时预览、图标选择和颜色选择" /><br />
+      <img src="docs/images/editor-dark.zh-CN.png" width="100%" alt="深色事项编辑器，展示实时预览、图标选择和颜色选择" /><br />
       <sub><strong>直观编辑。</strong>实时预览图标与颜色，并提供稳定、丰富的图标目录。</sub>
     </td>
   </tr>
   <tr>
     <td width="50%" align="center">
-      <img src="docs/images/settings-light.png" width="100%" alt="设置页面，展示主题预览和未登录时仅保存在本机的同步状态" /><br />
+      <img src="docs/images/settings-light.zh-CN.png" width="100%" alt="设置页面，展示主题预览和未登录时仅保存在本机的同步状态" /><br />
       <sub><strong>状态清楚可控。</strong>集中管理外观、语言和真实的本机或 OneDrive 同步状态。</sub>
     </td>
     <td width="50%" align="center">
-      <img src="docs/images/about-light.png" width="100%" alt="关于与致谢页面，展示项目署名、隐私边界和数据控制" /><br />
+      <img src="docs/images/about-light.zh-CN.png" width="100%" alt="关于与致谢页面，展示项目署名、隐私边界和数据控制" /><br />
       <sub><strong>默认透明。</strong>清楚说明致谢、隐私边界、数据工具和开源许可证。</sub>
     </td>
   </tr>
@@ -57,7 +57,7 @@ Last Time 是一款离线优先、可安装的 PWA，用来记住某件事上次
 3. 从主屏幕上的应用图标启动 Last Time。
 4. 当应用显示**发现新版本**时，选择**立即更新**。应用会等待新版 Service Worker 接管后再重新加载；如果激活超时，会显示可重试的错误，而不会一直停留在更新状态。
 
-安装名称会在添加到主屏幕时根据系统/浏览器语言确定：中文环境显示`上次`，其他语言显示 `Last Time`。已有主屏幕图标通常需要先移除再重新添加，才能采用更新后或本地化的名称。
+安装页面会在应用代码启动前，根据浏览器的首选语言选择安装元数据：中文环境显示`上次`，其他语言显示 `Last Time`。已有主屏幕图标可能要等待浏览器刷新安装清单；如需立即确认名称，请先移除旧图标，再重新添加。
 
 ### 在 Android 上安装
 
@@ -75,7 +75,7 @@ Last Time 是一款离线优先、可安装的 PWA，用来记住某件事上次
 
 如果 HyperOS 要求授予广泛的“安装未知应用”权限，建议先改用 Chrome。若你决定临时开启，请只为安装这个可信 PWA 使用，并在完成后关闭。部分小米系统只会创建主屏幕快捷方式，不会在应用列表中显示一个单独安装的应用；该快捷方式仍会启动独立窗口中的 Web 应用。
 
-较新的 Chromium/Edge 可以读取清单中的本地化名称。忽略本地化清单字段的旧版 Android 浏览器可能仍显示英文 `Last Time`；项目不会使用可能破坏可安装性的运行时清单切换方案。
+Chrome 和 Edge 148 起可以直接读取清单中的本地化字段。为兼容尚未支持该功能的 Android 浏览器，本项目也会在页面解析阶段选择顶层名称已经本地化的中文或英文清单；两个清单共享同一个应用 ID，不会被视为不同应用。
 
 ### 可选的跨设备同步
 

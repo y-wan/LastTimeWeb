@@ -1,0 +1,29 @@
+{
+  "id": "./",
+  "lang": "zh-CN",
+  "name": "上次",
+  "short_name": "上次",
+  "description": "记住每件事上次发生的时间。",
+  "name_localized": {
+    "en": { "value": "Last Time" }
+  },
+  "short_name_localized": {
+    "en": { "value": "Last Time" }
+  },
+  "description_localized": {
+    "en": { "value": "Remember when you last did the things that matter." }
+  },
+  "theme_color": "#D65A3A",
+  "background_color": "#FAF7F3",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "start_url": "./",
+  "scope": "./",
+  "icons": [
+    { "src": "app-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "app-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "app-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "app-icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "app-icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

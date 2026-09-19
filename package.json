@@ -9,7 +9,9 @@
     "typecheck": "tsc -b --pretty false",
     "lint": "eslint .",
     "test": "vitest run",
-    "test:layout": "playwright test e2e/palette-layout.spec.ts"
+    "test:layout": "playwright test e2e/palette-layout.spec.ts",
+    "test:install-metadata": "playwright test e2e/install-metadata.spec.ts",
+    "docs:screenshots": "playwright test --config playwright.screenshots.config.ts"
   },
   "dependencies": {
     "@azure/msal-browser": "^4.22.0",

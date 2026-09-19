@@ -1,7 +1,7 @@
 import { configDefaults, defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
-import { pwaAssets, pwaManifest } from './pwaManifest'
+import { pwaAssets } from './pwaManifest'
 
 export default defineConfig({
   base: './',
@@ -10,7 +10,7 @@ export default defineConfig({
     VitePWA({
       registerType: 'prompt',
       includeAssets: pwaAssets,
-      manifest: pwaManifest,
+      manifest: false,
       workbox: {
         navigateFallback: 'index.html',
         globPatterns: ['**/*.{js,css,html,svg,woff2}']

@@ -57,7 +57,7 @@ Open the live PWA at **[https://lasttimeweb.feliciameow.workers.dev/](https://la
 3. Launch Last Time from the installed Home Screen icon.
 4. When the app shows **New version available**, choose **Update now**. The app waits for the new Service Worker to take control before reloading and shows a retryable error instead of hanging if activation times out.
 
-The installed label is selected from the system/browser language at installation time: Chinese locales use `上次`; other locales use `Last Time`. Existing Home Screen icons normally need to be removed and added again to pick up a changed or newly localized name.
+Install metadata is selected from the browser's primary language before the app starts: Chinese locales use `上次`; other locales use `Last Time`. Existing Home Screen icons may wait for the browser's installed-manifest refresh; remove and add the icon again to verify a name change immediately.
 
 ### Install on Android
 
@@ -75,7 +75,7 @@ Enable **Home screen shortcuts** (shown as `桌面快捷方式` on Chinese syste
 
 If HyperOS asks for broad unknown-app installation access, prefer trying Chrome instead. If you deliberately enable that access for installation, use it only for this trusted PWA and disable it afterward. Some Xiaomi builds create only a Home screen shortcut rather than listing the PWA as a separately installed app; the shortcut still launches the standalone web experience.
 
-Current Chromium/Edge releases can read the manifest's localized names. Older Android browsers that ignore localized manifest members may use the English `Last Time` fallback; the app avoids fragile runtime manifest swapping that could break installability.
+Chrome and Edge 148 and newer can read localized manifest members directly. For Android browsers that do not yet support them, the page selects a locale-specific manifest whose top-level name is already localized. Both manifests share the same application ID.
 
 ### Optional cross-device sync
 

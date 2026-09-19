@@ -1,5 +1,9 @@
+export function isChineseLocale(locale: string | undefined) {
+  return locale?.toLowerCase().startsWith('zh') ?? false
+}
+
 export function installedAppName(locale: string | undefined) {
-  return locale?.toLowerCase().startsWith('zh') ? '上次' : 'Last Time'
+  return isChineseLocale(locale) ? '上次' : 'Last Time'
 }
 
 export function applyLocalizedAppMetadata(locale: string | undefined) {

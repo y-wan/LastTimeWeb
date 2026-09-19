@@ -6,10 +6,24 @@
     <meta name="theme-color" content="#D65A3A" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <title>Last Time</title>
     <meta name="apple-mobile-web-app-title" content="Last Time" />
+    <script>
+      (() => {
+        const primaryLanguage = navigator.languages?.[0] || navigator.language || 'en'
+        const isChinese = primaryLanguage.toLowerCase().startsWith('zh')
+        const name = isChinese ? '上次' : 'Last Time'
+        document.documentElement.lang = isChinese ? 'zh-CN' : 'en'
+        document.title = name
+        document.querySelector('meta[name="apple-mobile-web-app-title"]').content = name
+        const manifest = document.createElement('link')
+        manifest.rel = 'manifest'
+        manifest.href = isChinese ? './manifest.zh-CN.webmanifest' : './manifest.en.webmanifest'
+        document.head.appendChild(manifest)
+      })()
+    </script>
     <link rel="icon" href="./app-icon.svg" />
     <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon-180.png" />
-    <title>Last Time</title>
   </head>
   <body>
     <div id="root"></div>
