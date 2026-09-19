@@ -73,7 +73,7 @@ Do not put `VITE_MS_CLIENT_ID` in `wrangler.jsonc`. Configure it as a Cloudflare
 
 The service worker caches the app shell after the first successful load. Events, history, import/export, and pending sync data continue to work offline.
 
-On launch, foreground resume, and periodic checks while open, the installed PWA checks for a newer service worker. When one is waiting, the app shows a localized **New version available** banner. **Update now** activates it and reloads; **Later** dismisses it for the current run, without interrupting an open editor or silently reloading.
+On launch, foreground resume, and periodic checks while open, the installed PWA checks for a newer service worker. When one is waiting, the app shows a localized **New version available** banner. **Update now** asks the waiting worker to activate and reloads only after `controllerchange`; **Later** dismisses it for the current run, without interrupting an open editor or silently reloading. Activation is bounded: if iOS does not switch workers in time, progress clears and the banner offers a localized retry instead of remaining stuck.
 
 ## Import and export
 
@@ -90,3 +90,9 @@ Exports use the enriched portable format and preserve event notes, icon, color, 
 Events and occurrences use stable UUIDs and ISO `updatedAt` values. Deletions are retained as tombstones. Merging is by UUID and chooses the latest update; equal timestamps prefer deletion, then use a canonical property-order-independent record comparison. The same occurrence UUID is never duplicated, while separate repeated occurrences remain separate records.
 
 OneDrive uploads use the DriveItem ETag with `If-Match` (or `If-None-Match` when creating the file). A stale writer re-reads local and remote data, merges, and retries up to three times instead of overwriting a newer file. Local mutations and sync operations share a Web Lock where supported, with an in-process fallback, so a stale sync snapshot cannot overwrite a queued mutation. Conflict ordering still depends on device-generated wall-clock `updatedAt` values, so substantial clock skew can make an older real-world edit appear newer.
+
+## Platform notes and licenses
+
+- Daily reminders and app-lock features are intentionally excluded: Last Time is a historical record, not a task/habit app, and browser background scheduling is not treated as reliable.
+- Event images are not yet supported because portable/offline binary storage and OneDrive merge semantics need a deliberate design; the PWA does not create device-only images that silently fail to sync.
+- Icons are bundled, tree-shaken Google Material Symbols Rounded SVGs from `@material-symbols/svg-400`, licensed under Apache-2.0. No remote icon font is loaded, so icons remain available offline.

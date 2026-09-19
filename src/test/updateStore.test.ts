@@ -9,14 +9,16 @@ describe('PWA update prompt state', () => {
 
     store.setAvailable()
     store.setApplying()
-    store.setError('activation failed')
+    store.setError('activation failed', 'timeout')
+    store.setApplying()
     unsubscribe()
 
     expect(snapshots).toEqual([
       { available: false, applying: false },
       { available: true, applying: false },
-      { available: true, applying: true, error: undefined },
-      { available: true, applying: false, error: 'activation failed' }
+      { available: true, applying: true, error: undefined, errorKind: undefined },
+      { available: true, applying: false, error: 'activation failed', errorKind: 'timeout' },
+      { available: true, applying: true, error: undefined, errorKind: undefined }
     ])
   })
 })

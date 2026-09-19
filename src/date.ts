@@ -44,3 +44,27 @@ export function formatSyncTime(iso: string, locale: Locale) {
 export function formatSyncDateTime(iso: string, locale: Locale) {
   return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(iso))
 }
+
+export function formatInterval(from: string, to: string, locale: Locale) {
+  const milliseconds = Math.max(0, new Date(to).getTime() - new Date(from).getTime())
+  const days = Math.floor(milliseconds / DAY_MS)
+  if (days > 0) return locale === 'zh-CN' ? `${days} 天` : `${days} ${days === 1 ? 'day' : 'days'}`
+  const hours = Math.floor(milliseconds / 3_600_000)
+  if (hours > 0) return locale === 'zh-CN' ? `${hours} 小时` : `${hours} ${hours === 1 ? 'hour' : 'hours'}`
+  const minutes = Math.max(1, Math.floor(milliseconds / 60_000))
+  return locale === 'zh-CN' ? `${minutes} 分钟` : `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`
+}
+
+export function averageInterval(occurrences: string[]) {
+  if (occurrences.length < 2) return undefined
+  const sorted = occurrences.map((value) => new Date(value).getTime()).sort((a, b) => a - b)
+  const total = sorted.slice(1).reduce((sum, value, index) => sum + value - sorted[index], 0)
+  return total / (sorted.length - 1)
+}
+
+export function formatDuration(milliseconds: number, locale: Locale) {
+  const days = Math.round(milliseconds / DAY_MS)
+  if (days >= 1) return locale === 'zh-CN' ? `约 ${days} 天` : `About ${days} ${days === 1 ? 'day' : 'days'}`
+  const hours = Math.max(1, Math.round(milliseconds / 3_600_000))
+  return locale === 'zh-CN' ? `约 ${hours} 小时` : `About ${hours} ${hours === 1 ? 'hour' : 'hours'}`
+}

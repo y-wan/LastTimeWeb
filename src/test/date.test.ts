@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { elapsedParts, formatSyncDateTime, formatSyncTime, historyGroup } from '../date'
+import { averageInterval, elapsedParts, formatInterval, formatSyncDateTime, formatSyncTime, historyGroup } from '../date'
 
 describe('elapsed date behavior', () => {
   it('uses actual hours and minutes within the same calendar day', () => {
@@ -29,5 +29,15 @@ describe('elapsed date behavior', () => {
     expect(formatSyncDateTime(iso, 'zh-CN')).toBe(
       new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(iso))
     )
+  })
+
+  it('calculates average and per-record intervals for detail statistics', () => {
+    const values = [
+      '2026-09-01T00:00:00.000Z',
+      '2026-09-04T00:00:00.000Z',
+      '2026-09-09T00:00:00.000Z'
+    ]
+    expect(averageInterval(values)).toBe(4 * 86_400_000)
+    expect(formatInterval(values[0], values[1], 'en')).toBe('3 days')
   })
 })

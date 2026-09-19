@@ -2,6 +2,7 @@ export interface UpdateSnapshot {
   available: boolean
   applying: boolean
   error?: string
+  errorKind?: 'failed' | 'timeout'
 }
 
 export class UpdateStore {
@@ -21,11 +22,11 @@ export class UpdateStore {
   }
 
   setApplying() {
-    this.publish({ ...this.snapshot, applying: true, error: undefined })
+    this.publish({ ...this.snapshot, applying: true, error: undefined, errorKind: undefined })
   }
 
-  setError(error: string) {
-    this.publish({ ...this.snapshot, applying: false, error })
+  setError(error: string, errorKind: 'failed' | 'timeout' = 'failed') {
+    this.publish({ ...this.snapshot, applying: false, error, errorKind })
   }
 
   private publish(snapshot: UpdateSnapshot) {

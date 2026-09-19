@@ -1,5 +1,6 @@
 export type ThemeMode = 'system' | 'light' | 'dark'
 export type Locale = 'en' | 'zh-CN'
+export type ColorTheme = 'vitalOrange' | 'mistBlue' | 'sage' | 'softPurple' | 'quietGray'
 export type SyncState = 'offline' | 'idle' | 'syncing' | 'error'
 
 export interface EventRecord {
@@ -34,6 +35,7 @@ export interface SettingsRecord {
   key: 'settings'
   locale: Locale
   theme: ThemeMode
+  colorTheme?: ColorTheme
 }
 
 export interface SyncMetaRecord {

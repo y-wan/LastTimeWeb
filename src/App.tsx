@@ -1,20 +1,26 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Download, HardDrive, History, Plus, Search, Settings, Upload, Wifi, WifiOff, X } from 'lucide-react'
 import { addOccurrence, createEvent, db, deleteEvent, deleteOccurrence, importRecords, updateEvent, updateOccurrence } from './db'
 import { exportCsv, importCsv } from './csv'
-import { formatElapsed, formatSyncDateTime, formatSyncTime, historyGroup, toLocalInputValue } from './date'
+import { averageInterval, formatDuration, formatElapsed, formatInterval, formatSyncDateTime, formatSyncTime, historyGroup, toLocalInputValue } from './date'
 import { accountIdentity } from './auth'
-import { iconCatalogue } from './iconCatalogue'
-import { EventIcon } from './icons'
+import { iconCatalogue, iconLabel } from './iconCatalogue'
+import { EventIcon, MaterialIcon, type MaterialIconName } from './icons'
 import { translator } from './i18n'
 import { currentAccount, isSyncConfigured, signIn, signOut, subscribeAuth, synchronize, type AuthSnapshot } from './onedrive'
 import { activatePwaUpdate } from './pwaUpdate'
 import { currentAccountLastSync, syncMetaKey, syncPresentation, type SyncPresentation } from './syncStatus'
-import type { EventRecord, Locale, OccurrenceRecord, SyncState, ThemeMode } from './types'
+import type { ColorTheme, EventRecord, Locale, OccurrenceRecord, SyncState, ThemeMode } from './types'
 import { updateStore, type UpdateSnapshot } from './updateStore'
 
 const COLORS = ['#e66d5b', '#177b78', '#d6973c', '#7656a5', '#4f7d55', '#bf5c82', '#4d79b8', '#8a6547']
+const PALETTES: Array<{ id: ColorTheme; primary: string; secondary: string; background: string; surface: string }> = [
+  { id: 'vitalOrange', primary: '#E86F51', secondary: '#238C82', background: '#FFF8F3', surface: '#FFFDFC' },
+  { id: 'mistBlue', primary: '#587DB7', secondary: '#4F8997', background: '#F7F9FC', surface: '#FFFFFF' },
+  { id: 'sage', primary: '#6F8D68', secondary: '#B46F56', background: '#FAF8F1', surface: '#FFFFFF' },
+  { id: 'softPurple', primary: '#8067A8', secondary: '#B2738A', background: '#FAF7FC', surface: '#FFFFFF' },
+  { id: 'quietGray', primary: '#586A70', secondary: '#708A82', background: '#F7F6F3', surface: '#FFFFFF' }
+]
 const EMPTY_EVENTS: EventRecord[] = []
 const EMPTY_OCCURRENCES: OccurrenceRecord[] = []
 
@@ -72,29 +78,55 @@ function useSync(accountId?: string) {
   return { state, error, lastSuccessfulSync, run, schedule }
 }
 
-function EventForm({ initial, t, onSave, onClose }: {
+function EventForm({ initial, locale, t, onSave, onClose, onDirtyChange }: {
   initial?: EventRecord
+  locale: Locale
   t: ReturnType<typeof translator>
   onSave: (draft: EventDraft) => Promise<void>
   onClose: () => void
+  onDirtyChange: (dirty: boolean) => void
 }) {
-  const [draft, setDraft] = useState<EventDraft>(initial ?? emptyDraft)
+  const original: EventDraft = initial
+    ? { name: initial.name, note: initial.note, icon: initial.icon, color: initial.color }
+    : emptyDraft
+  const [draft, setDraft] = useState<EventDraft>(original)
+  const dirty = JSON.stringify(draft) !== JSON.stringify(original)
+  const requestClose = () => {
+    if (!dirty || window.confirm(t('discardChanges'))) onClose()
+  }
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      if (!dirty) return
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [dirty])
+  useEffect(() => {
+    onDirtyChange(dirty)
+    return () => onDirtyChange(false)
+  }, [dirty, onDirtyChange])
+
   return (
-    <div className="modal-backdrop" onMouseDown={onClose}>
+    <div className="modal-backdrop" onMouseDown={requestClose}>
       <form className="sheet" onMouseDown={(event) => event.stopPropagation()} onSubmit={(event) => {
         event.preventDefault()
         void onSave({ ...draft, name: draft.name.trim(), note: draft.note.trim() })
       }}>
-        <div className="sheet-header"><h2>{initial ? t('edit') : t('addEvent')}</h2><button type="button" className="icon-button" onClick={onClose}><X /></button></div>
+        <div className="editor-header">
+          <button type="button" className="icon-button" aria-label={t('back')} onClick={requestClose}><MaterialIcon name="back" /></button>
+          <h2>{initial ? t('edit') : t('addEvent')}</h2>
+          <button className="text-button" disabled={!draft.name.trim()}>{t('saveEvent')}</button>
+        </div>
         <label>{t('name')}<input autoFocus required maxLength={80} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
         <label>{t('note')} <span className="muted">{t('optional')}</span><textarea maxLength={500} value={draft.note} onChange={(event) => setDraft({ ...draft, note: event.target.value })} /></label>
-        <fieldset><legend>{t('icon')}</legend><div className="icon-grid">
-          {iconCatalogue.map((icon) => <button aria-label={icon} className={draft.icon === icon ? 'selected' : ''} type="button" key={icon} onClick={() => setDraft({ ...draft, icon })}><EventIcon name={icon} /></button>)}
+        <fieldset><legend>{t('chooseIcon')}</legend><div className="icon-grid">
+          {iconCatalogue.map((icon) => <button aria-label={iconLabel(icon, locale)} className={draft.icon === icon ? 'selected' : ''} type="button" key={icon} onClick={() => setDraft({ ...draft, icon })}><EventIcon name={icon} size={30} /><span>{iconLabel(icon, locale)}</span></button>)}
         </div></fieldset>
-        <fieldset><legend>{t('color')}</legend><div className="color-grid">
-          {COLORS.map((color) => <button aria-label={color} className={draft.color === color ? 'selected' : ''} style={{ background: color }} type="button" key={color} onClick={() => setDraft({ ...draft, color })} />)}
+        <fieldset><legend>{t('chooseColor')}</legend><div className="color-grid">
+          {COLORS.map((color) => <button aria-label={color} className={draft.color === color ? 'selected' : ''} style={{ background: color }} type="button" key={color} onClick={() => setDraft({ ...draft, color })}>{draft.color === color && <MaterialIcon name="check" size={20} />}</button>)}
         </div></fieldset>
-        <div className="form-actions"><button type="button" className="secondary" onClick={onClose}>{t('cancel')}</button><button className="primary" disabled={!draft.name.trim()}>{t('save')}</button></div>
       </form>
     </div>
   )
@@ -106,27 +138,33 @@ function OccurrenceEditor({ occurrence, t, onSave, onClose }: {
   onSave: (date: string, note: string) => Promise<void>
   onClose: () => void
 }) {
-  const [date, setDate] = useState(toLocalInputValue(occurrence?.occurredAt ?? new Date().toISOString()))
+  const initial = toLocalInputValue(occurrence?.occurredAt ?? new Date().toISOString())
+  const [date, setDate] = useState(initial.slice(0, 10))
+  const [time, setTime] = useState(initial.slice(11, 16))
   const [note, setNote] = useState(occurrence?.note ?? '')
   const max = toLocalInputValue(new Date().toISOString())
+  const occurredAt = date && time ? new Date(`${date}T${time}`).toISOString() : ''
+  const isFuture = occurredAt ? new Date(occurredAt).getTime() > Date.now() : false
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
       <form className="sheet compact" onMouseDown={(event) => event.stopPropagation()} onSubmit={(event) => {
         event.preventDefault()
-        const iso = new Date(date).toISOString()
-        if (new Date(iso).getTime() > Date.now()) return
-        void onSave(iso, note.trim())
+        if (!occurredAt || isFuture) return
+        void onSave(occurredAt, note.trim())
       }}>
-        <div className="sheet-header"><h2>{occurrence ? t('edit') : t('addOccurrence')}</h2><button type="button" className="icon-button" onClick={onClose}><X /></button></div>
-        <label>{t('occurredAt')}<input type="datetime-local" required max={max} value={date} onChange={(event) => setDate(event.target.value)} /></label>
+        <div className="editor-header"><button type="button" className="icon-button" aria-label={t('back')} onClick={onClose}><MaterialIcon name="back" /></button><h2>{occurrence ? t('edit') : t('addOccurrence')}</h2><button className="text-button" disabled={!occurredAt || isFuture}>{t('save')}</button></div>
+        <div className="date-time-grid">
+          <label>{t('occurredAt')}<input type="date" required max={max.slice(0, 10)} value={date} onChange={(event) => setDate(event.target.value)} /></label>
+          <label>{t('time')}<input type="time" required max={date === max.slice(0, 10) ? max.slice(11, 16) : undefined} value={time} onChange={(event) => setTime(event.target.value)} /></label>
+        </div>
         <label>{t('note')} <span className="muted">{t('optional')}</span><textarea value={note} onChange={(event) => setNote(event.target.value)} /></label>
-        <div className="form-actions"><button type="button" className="secondary" onClick={onClose}>{t('cancel')}</button><button className="primary" disabled={!date || date > max}>{t('save')}</button></div>
+        {isFuture && <p className="error-message">{t('futureError')}</p>}
       </form>
     </div>
   )
 }
 
-function EventDetail({ event, occurrences, locale, t, onClose, onMutate, onEditEvent }: {
+function EventDetail({ event, occurrences, locale, t, onClose, onMutate, onEditEvent, onMarkNow }: {
   event: EventRecord
   occurrences: OccurrenceRecord[]
   locale: Locale
@@ -134,33 +172,53 @@ function EventDetail({ event, occurrences, locale, t, onClose, onMutate, onEditE
   onClose: () => void
   onMutate: () => void
   onEditEvent: () => void
+  onMarkNow?: (eventId: string) => Promise<void>
 }) {
   const [editing, setEditing] = useState<OccurrenceRecord | null | 'new'>(null)
   const history = occurrences.filter((item) => item.eventId === event.id && !item.deletedAt).sort((a, b) => b.occurredAt.localeCompare(a.occurredAt))
+  const average = averageInterval(history.map((item) => item.occurredAt))
+  const predicted = average && history[0] ? new Date(new Date(history[0].occurredAt).getTime() + average) : undefined
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
       <section className="sheet detail-sheet" onMouseDown={(click) => click.stopPropagation()}>
-        <div className="sheet-header">
-          <div className="detail-title"><span className="event-icon" style={{ background: event.color }}><EventIcon name={event.icon} /></span><div><h2>{event.name}</h2>{event.note && <p>{event.note}</p>}</div></div>
-          <button className="icon-button" onClick={onClose}><X /></button>
+        <div className="detail-header">
+          <button className="icon-button" aria-label={t('back')} onClick={onClose}><MaterialIcon name="back" /></button>
+          <h2>{event.name}</h2>
+          <div>
+            <button className="icon-button" aria-label={t('edit')} onClick={onEditEvent}><MaterialIcon name="edit" size={20} /></button>
+            <button className="icon-button danger-icon" aria-label={t('delete')} onClick={async () => {
+              if (window.confirm(t('confirmDeleteEvent'))) { await deleteEvent(event.id); onMutate(); onClose() }
+            }}><MaterialIcon name="delete" size={20} /></button>
+          </div>
         </div>
-        <div className="detail-actions"><button className="secondary" onClick={onEditEvent}>{t('edit')}</button><button className="primary" onClick={() => setEditing('new')}><Plus size={18} />{t('addOccurrence')}</button></div>
-        <h3>{t('occurrences')}</h3>
+        <div className="detail-event-icon" style={{ '--event-color': event.color } as CSSProperties}><EventIcon name={event.icon} size={34} /></div>
+        <div className="detail-actions">
+          <button className="primary" onClick={() => void onMarkNow?.(event.id)}><MaterialIcon name="check" size={20} />{t('markNow')}</button>
+          <button className="secondary" onClick={() => setEditing('new')}><MaterialIcon name="event" size={20} />{t('addOccurrence')}</button>
+        </div>
+        <section className="stats-card">
+          <h3>{t('statistics')}</h3>
+          {average && predicted ? <div className="stats-grid">
+            <div><small>{t('averageInterval')}</small><strong>{formatDuration(average, locale)}</strong></div>
+            <div><small>{t('predictedNext')}</small><strong>{new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(predicted)}</strong></div>
+          </div> : <p>{t('insufficientData')}</p>}
+        </section>
+        {event.note && <section className="notes-card"><h3>{t('eventNotes')}</h3><p>{event.note}</p></section>}
+        <div className="section-heading"><h3>{t('occurrences')}</h3><span>{history.length}</span></div>
         {!history.length && <p className="empty">{t('noHistory')}</p>}
         <div className="occurrence-list">
-          {history.map((item) => <article key={item.id}>
+          {history.map((item, index) => <article key={item.id}>
+            <span className="history-icon"><EventIcon name="clock" size={20} /></span>
             <button className="occurrence-main" onClick={() => setEditing(item)}>
               <strong>{new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(item.occurredAt))}</strong>
+              {history[index + 1] && <small>{t('sincePrevious')}: {formatInterval(history[index + 1].occurredAt, item.occurredAt, locale)}</small>}
               {item.note && <span>{item.note}</span>}
             </button>
-            <button className="danger-text" onClick={async () => {
+            <button className="icon-button danger-icon" aria-label={t('deleteRecord')} onClick={async () => {
               if (window.confirm(t('confirmDeleteOccurrence'))) { await deleteOccurrence(item.id); onMutate() }
-            }}>{t('delete')}</button>
+            }}><MaterialIcon name="delete" size={18} /></button>
           </article>)}
         </div>
-        <button className="danger wide" onClick={async () => {
-          if (window.confirm(t('confirmDeleteEvent'))) { await deleteEvent(event.id); onMutate(); onClose() }
-        }}>{t('delete')}</button>
       </section>
       {editing && <OccurrenceEditor occurrence={editing === 'new' ? undefined : editing} t={t} onClose={() => setEditing(null)} onSave={async (occurredAt, note) => {
         if (editing === 'new') await addOccurrence(event.id, occurredAt, note)
@@ -177,7 +235,8 @@ export default function App() {
   const settings = useLiveQuery(() => db.settings.get('settings'), [])
   const [locale, setLocale] = useState<Locale>(() => (navigator.language.startsWith('zh') ? 'zh-CN' : 'en'))
   const [theme, setTheme] = useState<ThemeMode>('system')
-  const [tab, setTab] = useState<'events' | 'history' | 'settings'>('events')
+  const [colorTheme, setColorTheme] = useState<ColorTheme>('vitalOrange')
+  const [tab, setTab] = useState<'events' | 'settings'>('events')
   const [editingEvent, setEditingEvent] = useState<EventRecord | null | 'new'>(null)
   const [detailId, setDetailId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -187,6 +246,9 @@ export default function App() {
   const [syncNotice, setSyncNotice] = useState('')
   const [update, setUpdate] = useState<UpdateSnapshot>({ available: false, applying: false })
   const [updateDismissed, setUpdateDismissed] = useState(false)
+  const [editorDirty, setEditorDirty] = useState(false)
+  const overlayHistoryActive = useRef(false)
+  const allowOverlayClose = useRef(false)
   const t = useMemo(() => translator(locale), [locale])
   const accountId = auth.account?.homeAccountId
   const syncMeta = useLiveQuery(() => accountId ? db.syncMeta.get(syncMetaKey(accountId)) : undefined, [accountId])
@@ -200,17 +262,42 @@ export default function App() {
   })
 
   useEffect(() => {
-    if (settings) { setLocale(settings.locale); setTheme(settings.theme) }
+    if (settings) { setLocale(settings.locale); setTheme(settings.theme); setColorTheme(settings.colorTheme ?? 'vitalOrange') }
   }, [settings])
   useEffect(() => {
     document.documentElement.dataset.theme = theme
+    document.documentElement.dataset.palette = colorTheme
     document.documentElement.lang = locale
-  }, [theme, locale])
+    const palette = PALETTES.find((item) => item.id === colorTheme) ?? PALETTES[0]
+    document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute('content', palette.primary)
+  }, [colorTheme, theme, locale])
   useEffect(() => subscribeAuth(setAuth), [])
   useEffect(() => updateStore.subscribe((snapshot) => {
     setUpdate(snapshot)
     if (snapshot.available && !snapshot.error) setUpdateDismissed(false)
   }), [])
+  const overlayOpen = Boolean(editingEvent || detailId)
+  useEffect(() => {
+    if (overlayOpen && !overlayHistoryActive.current) {
+      window.history.pushState({ lastTimeOverlay: true }, '')
+      overlayHistoryActive.current = true
+    }
+  }, [overlayOpen])
+  useEffect(() => {
+    const onPopState = () => {
+      if (!overlayHistoryActive.current) return
+      if (!allowOverlayClose.current && editorDirty && !window.confirm(t('discardChanges'))) {
+        window.history.pushState({ lastTimeOverlay: true }, '')
+        return
+      }
+      allowOverlayClose.current = false
+      overlayHistoryActive.current = false
+      setEditingEvent(null)
+      setDetailId(null)
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [editorDirty, t])
   useEffect(() => {
     if (!sync.lastSuccessfulSync || sync.lastSuccessfulSync.accountId !== accountId) {
       setSyncNotice('')
@@ -234,6 +321,11 @@ export default function App() {
   const sorted = [...filtered].sort((a, b) => (latestByEvent.get(b.id)?.occurredAt ?? '').localeCompare(latestByEvent.get(a.id)?.occurredAt ?? ''))
   const detailEvent = events.find((event) => event.id === detailId)
   const identity = auth.account ? accountIdentity(auth.account) : undefined
+  const updateMessage = update.errorKind === 'timeout'
+    ? t('updateTimeout')
+    : update.error
+      ? `${t('updateFailed')} ${update.error}`
+      : t('updateAvailable')
 
   const markNow = async (eventId: string) => {
     const occurrence = await addOccurrence(eventId)
@@ -243,9 +335,18 @@ export default function App() {
     mutate()
   }
 
-  const persistSettings = async (nextLocale: Locale, nextTheme: ThemeMode) => {
-    setLocale(nextLocale); setTheme(nextTheme)
-    await db.settings.put({ key: 'settings', locale: nextLocale, theme: nextTheme })
+  const closeOverlay = () => {
+    allowOverlayClose.current = true
+    if (overlayHistoryActive.current) window.history.back()
+    else {
+      setEditingEvent(null)
+      setDetailId(null)
+    }
+  }
+
+  const persistSettings = async (nextLocale: Locale, nextTheme: ThemeMode, nextColorTheme: ColorTheme) => {
+    setLocale(nextLocale); setTheme(nextTheme); setColorTheme(nextColorTheme)
+    await db.settings.put({ key: 'settings', locale: nextLocale, theme: nextTheme, colorTheme: nextColorTheme })
   }
 
   const connectMicrosoft = async () => {
@@ -282,76 +383,72 @@ export default function App() {
       <main>
         {tab === 'events' && <>
           <div className="toolbar">
-            <label className="search"><Search size={18} /><input aria-label={t('search')} placeholder={t('search')} value={query} onChange={(event) => setQuery(event.target.value)} /></label>
-            <button className="primary add-button" onClick={() => setEditingEvent('new')}><Plus />{t('addEvent')}</button>
+            <label className="search"><MaterialIcon name="search" size={18} /><input aria-label={t('search')} placeholder={t('search')} value={query} onChange={(event) => setQuery(event.target.value)} /></label>
           </div>
-          {!events.length && <div className="empty-state"><EventIcon name="clock" size={48} /><p>{t('empty')}</p><button className="primary" onClick={() => setEditingEvent('new')}>{t('addEvent')}</button></div>}
-          <div className="event-grid">
-            {sorted.map((event) => {
-              const latest = latestByEvent.get(event.id)
-              return <article className="event-card" key={event.id}>
-                <button className="event-card-main" onClick={() => setDetailId(event.id)}>
-                  <span className="event-icon large" style={{ background: event.color }}><EventIcon name={event.icon} size={28} /></span>
-                  <span className="event-copy"><strong>{event.name}</strong>{event.note && <small>{event.note}</small>}<b>{formatElapsed(latest?.occurredAt, locale)}</b></span>
-                </button>
-                <button className="mark-button" onClick={() => void markNow(event.id)}>{t('markNow')}</button>
-              </article>
-            })}
+          {!events.length && <div className="empty-state"><span className="empty-icon"><EventIcon name="clock" size={34} /></span><h2>{t('emptyTitle')}</h2><p>{t('empty')}</p><button className="primary" onClick={() => setEditingEvent('new')}><MaterialIcon name="add" size={20} />{t('addEvent')}</button></div>}
+          <div className="grouped-events">
+            {grouped.map(({ group, events: groupEvents }) => groupEvents.length > 0 && <section key={group}>
+              <h2>{t(group === 'never' ? 'never' : group)}</h2>
+              <div className="event-grid">
+                {groupEvents.map((event) => {
+                  const latest = latestByEvent.get(event.id)
+                  const eventStyle = { '--event-color': event.color } as CSSProperties
+                  return <article className="event-card" style={eventStyle} key={event.id}>
+                    <button className="event-card-main" onClick={() => setDetailId(event.id)}>
+                      <span className="event-icon"><EventIcon name={event.icon} size={24} /></span>
+                      <span className="event-copy"><strong>{event.name}</strong>{event.note && <small>{event.note}</small>}<b>{formatElapsed(latest?.occurredAt, locale)}</b></span>
+                    </button>
+                    <button className="record-button" aria-label={`${t('record')} ${event.name}`} onClick={() => void markNow(event.id)}><span><MaterialIcon name="check" size={20} /></span></button>
+                  </article>
+                })}
+              </div>
+            </section>)}
           </div>
+          <button className="fab" aria-label={t('addEvent')} onClick={() => setEditingEvent('new')}><MaterialIcon name="add" size={26} /></button>
         </>}
-        {tab === 'history' && <div className="history-page">
-          {grouped.map(({ group, events: groupEvents }) => groupEvents.length > 0 && <section key={group}>
-            <h2>{t(group === 'never' ? 'never' : group)}</h2>
-            {groupEvents.map((event) => {
-              const latest = latestByEvent.get(event.id)
-              return <button className="history-row" key={event.id} onClick={() => setDetailId(event.id)}>
-                <span className="event-icon" style={{ background: event.color }}><EventIcon name={event.icon} /></span>
-                <span><strong>{event.name}</strong><small>{latest ? new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(latest.occurredAt)) : t('never')}</small></span>
-                <b>{formatElapsed(latest?.occurredAt, locale)}</b>
-              </button>
-            })}
-          </section>)}
-        </div>}
         {tab === 'settings' && <div className="settings-page">
-          <section><h2>{t('language')}</h2><div className="segmented"><button className={locale === 'en' ? 'active' : ''} onClick={() => void persistSettings('en', theme)}>English</button><button className={locale === 'zh-CN' ? 'active' : ''} onClick={() => void persistSettings('zh-CN', theme)}>简体中文</button></div></section>
-          <section><h2>{t('appearance')}</h2><div className="segmented">{(['system', 'light', 'dark'] as ThemeMode[]).map((value) => <button className={theme === value ? 'active' : ''} key={value} onClick={() => void persistSettings(locale, value)}>{t(value)}</button>)}</div></section>
-          <section><h2>{t('sync')}</h2>
+          <section className="settings-card"><h2>{t('language')}</h2><div className="segmented"><button className={locale === 'en' ? 'active' : ''} onClick={() => void persistSettings('en', theme, colorTheme)}>English</button><button className={locale === 'zh-CN' ? 'active' : ''} onClick={() => void persistSettings('zh-CN', theme, colorTheme)}>简体中文</button></div></section>
+          <section className="settings-card"><h2>{t('appearance')}</h2><div className="segmented">{(['system', 'light', 'dark'] as ThemeMode[]).map((value) => <button className={theme === value ? 'active' : ''} key={value} onClick={() => void persistSettings(locale, value, colorTheme)}>{t(value)}</button>)}</div></section>
+          <section className="settings-card palette-section"><h2>{t('colorTheme')}</h2><div className="palette-list">{PALETTES.map((palette) => <button className={`palette-card ${colorTheme === palette.id ? 'selected' : ''}`} key={palette.id} onClick={() => void persistSettings(locale, theme, palette.id)}>
+            <span className="palette-preview" style={{ background: palette.background }}><i style={{ background: palette.surface }} /><i style={{ background: palette.primary }} /><i style={{ background: palette.secondary }} /></span>
+            <span>{t(palette.id)}</span>{colorTheme === palette.id && <MaterialIcon name="check" size={18} />}
+          </button>)}</div></section>
+          <section className="settings-card"><h2>{t('sync')}</h2>
             {!isSyncConfigured() ? <p className="warning">{t('clientIdMissing')}</p> : !auth.ready ? <p>{t('checkingAccount')}</p> : auth.account ? <>
               <p className="connected">{t('signedIn')}<strong>{identity?.primary}</strong>{identity?.secondary && <small>{identity.secondary}</small>}<small>{syncStatusLabel(syncStatus, t)}</small><small>{lastSuccessfulSyncAt ? `${t('lastSynced')}: ${formatSyncDateTime(lastSuccessfulSyncAt, locale)}` : t('neverSynced')}</small></p>
               <div className="settings-actions"><button className="primary" disabled={sync.state === 'syncing' || sync.state === 'offline'} onClick={() => void sync.run()}>{sync.state === 'syncing' ? t('syncing') : sync.state === 'error' ? t('retry') : t('syncNow')}</button><button className="secondary" onClick={() => void disconnectMicrosoft()}>{t('signOut')}</button></div>
             </> : <><p>{t('deviceOnly')}</p><button className="primary wide" onClick={() => void connectMicrosoft()}>{t('signIn')}</button></>}
             {(auth.error || sync.error) && <p className="error-message">{auth.error || sync.error}</p>}
           </section>
-          <section><h2>{t('data')}</h2><div className="settings-actions">
-            <label className="button secondary"><Upload size={18} />{t('import')}<input hidden type="file" accept=".csv,text/csv" onChange={async (event) => {
+          <section className="settings-card"><h2>{t('data')}</h2><div className="data-actions">
+            <label className="data-action"><span><MaterialIcon name="upload" size={22} /></span><div><strong>{t('import')}</strong><small>{t('importHint')}</small></div><input hidden type="file" accept=".csv,text/csv" onChange={async (event) => {
               const file = event.target.files?.[0]
               if (!file) return
               const imported = importCsv(await file.text())
               await importRecords(imported.events, imported.occurrences)
               setNotice(t('imported')); mutate(); event.target.value = ''
             }} /></label>
-            <button className="secondary" onClick={() => {
+            <button className="data-action" onClick={() => {
               const blob = new Blob([exportCsv(events, occurrences)], { type: 'text/csv;charset=utf-8' })
               const url = URL.createObjectURL(blob)
               const anchor = document.createElement('a'); anchor.href = url; anchor.download = `last-time-${new Date().toISOString().slice(0, 10)}.csv`; anchor.click()
               URL.revokeObjectURL(url)
-            }}><Download size={18} />{t('export')}</button>
+            }}><span><MaterialIcon name="download" size={22} /></span><div><strong>{t('export')}</strong><small>{t('exportHint')}</small></div></button>
           </div>{notice && <p className="success-message">{notice}</p>}</section>
         </div>}
       </main>
       <nav>
         <button className={tab === 'events' ? 'active' : ''} onClick={() => setTab('events')}><EventIcon name="clock" /><span>{t('events')}</span></button>
-        <button className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}><History /><span>{t('history')}</span></button>
-        <button className={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}><Settings /><span>{t('settings')}</span></button>
+        <button className={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}><MaterialIcon name="settings" /><span>{t('settings')}</span></button>
       </nav>
-      {editingEvent && <EventForm initial={editingEvent === 'new' ? undefined : editingEvent} t={t} onClose={() => setEditingEvent(null)} onSave={async (draft) => {
+      {editingEvent && <EventForm initial={editingEvent === 'new' ? undefined : editingEvent} locale={locale} t={t} onDirtyChange={setEditorDirty} onClose={closeOverlay} onSave={async (draft) => {
         if (editingEvent === 'new') await createEvent(draft)
         else await updateEvent(editingEvent.id, draft)
-        setEditingEvent(null); mutate()
+        mutate(); closeOverlay()
       }} />}
-      {detailEvent && <EventDetail event={detailEvent} occurrences={occurrences} locale={locale} t={t} onClose={() => setDetailId(null)} onMutate={mutate} onEditEvent={() => { setDetailId(null); setEditingEvent(detailEvent) }} />}
+      {detailEvent && <EventDetail event={detailEvent} occurrences={occurrences} locale={locale} t={t} onClose={closeOverlay} onMutate={mutate} onMarkNow={markNow} onEditEvent={() => { setDetailId(null); setEditingEvent(detailEvent) }} />}
       {(update.available || update.error) && !updateDismissed && <div className="update-banner">
-        <span>{update.error || t('updateAvailable')}</span>
+        <span>{updateMessage}</span>
         <div><button className="secondary" disabled={update.applying} onClick={() => setUpdateDismissed(true)}>{t('later')}</button>{update.available && <button className="primary" disabled={update.applying} onClick={() => void activatePwaUpdate()}>{update.applying ? t('updating') : t('updateNow')}</button>}</div>
       </div>}
       {syncNotice && <div className={`toast sync-toast ${undo ? 'stacked' : ''}`}>{syncNotice}</div>}
@@ -371,6 +468,6 @@ function syncStatusLabel(status: SyncPresentation, t: ReturnType<typeof translat
 }
 
 function SyncBadge({ status, error, t }: { status: SyncPresentation; error: string; t: ReturnType<typeof translator> }) {
-  const Icon = status === 'deviceOnly' ? HardDrive : status === 'offline' ? WifiOff : Wifi
-  return <span className={`sync-badge ${status}`} title={error}><Icon size={14} />{syncStatusLabel(status, t)}</span>
+  const icon: MaterialIconName = status === 'deviceOnly' ? 'hardDrive' : status === 'offline' ? 'wifiOff' : 'wifi'
+  return <span className={`sync-badge ${status}`} title={error}><MaterialIcon name={icon} size={14} />{syncStatusLabel(status, t)}</span>
 }
