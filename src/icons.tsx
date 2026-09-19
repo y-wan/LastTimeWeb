@@ -1,8 +1,16 @@
 import schedule from '@material-symbols/svg-400/rounded/schedule.svg'
+import event from '@material-symbols/svg-400/rounded/event.svg'
+import history from '@material-symbols/svg-400/rounded/history.svg'
+import favorite from '@material-symbols/svg-400/rounded/favorite.svg'
+import health from '@material-symbols/svg-400/rounded/health_and_safety.svg'
+import medical from '@material-symbols/svg-400/rounded/medical_services.svg'
+import medication from '@material-symbols/svg-400/rounded/medication.svg'
+import fitness from '@material-symbols/svg-400/rounded/fitness_center.svg'
+import running from '@material-symbols/svg-400/rounded/directions_run.svg'
+import cycling from '@material-symbols/svg-400/rounded/directions_bike.svg'
+import sleep from '@material-symbols/svg-400/rounded/bedtime.svg'
+import mindfulness from '@material-symbols/svg-400/rounded/self_improvement.svg'
 import pets from '@material-symbols/svg-400/rounded/pets.svg'
-import dog from '@material-symbols/svg-400/rounded/sound_detection_dog_barking.svg'
-import cat from '@material-symbols/svg-400/rounded/cruelty_free.svg'
-import bone from '@material-symbols/svg-400/rounded/nutrition.svg'
 import bed from '@material-symbols/svg-400/rounded/bed.svg'
 import grooming from '@material-symbols/svg-400/rounded/content_cut.svg'
 import car from '@material-symbols/svg-400/rounded/directions_car.svg'
@@ -12,16 +20,26 @@ import furniture from '@material-symbols/svg-400/rounded/chair.svg'
 import shower from '@material-symbols/svg-400/rounded/shower.svg'
 import air from '@material-symbols/svg-400/rounded/air.svg'
 import laundry from '@material-symbols/svg-400/rounded/local_laundry_service.svg'
-import bath from '@material-symbols/svg-400/rounded/bathtub.svg'
 import water from '@material-symbols/svg-400/rounded/water_drop.svg'
 import home from '@material-symbols/svg-400/rounded/home.svg'
-import food from '@material-symbols/svg-400/rounded/restaurant.svg'
+import meal from '@material-symbols/svg-400/rounded/restaurant.svg'
+import coffee from '@material-symbols/svg-400/rounded/coffee.svg'
+import family from '@material-symbols/svg-400/rounded/family_restroom.svg'
+import children from '@material-symbols/svg-400/rounded/child_care.svg'
+import friends from '@material-symbols/svg-400/rounded/group.svg'
+import call from '@material-symbols/svg-400/rounded/call.svg'
+import book from '@material-symbols/svg-400/rounded/menu_book.svg'
+import movie from '@material-symbols/svg-400/rounded/movie.svg'
+import music from '@material-symbols/svg-400/rounded/music_note.svg'
+import travel from '@material-symbols/svg-400/rounded/flight.svg'
 import shopping from '@material-symbols/svg-400/rounded/shopping_basket.svg'
-import health from '@material-symbols/svg-400/rounded/health_and_safety.svg'
-import exercise from '@material-symbols/svg-400/rounded/fitness_center.svg'
-import clothes from '@material-symbols/svg-400/rounded/checkroom.svg'
-import plants from '@material-symbols/svg-400/rounded/local_florist.svg'
-import spray from '@material-symbols/svg-400/rounded/sanitizer.svg'
+import work from '@material-symbols/svg-400/rounded/work.svg'
+import study from '@material-symbols/svg-400/rounded/school.svg'
+import payment from '@material-symbols/svg-400/rounded/payments.svg'
+import celebration from '@material-symbols/svg-400/rounded/celebration.svg'
+import birthday from '@material-symbols/svg-400/rounded/cake.svg'
+import creative from '@material-symbols/svg-400/rounded/palette.svg'
+import quitSmoking from '@material-symbols/svg-400/rounded/smoke_free.svg'
 import add from '@material-symbols/svg-400/rounded/add.svg'
 import check from '@material-symbols/svg-400/rounded/check.svg'
 import settings from '@material-symbols/svg-400/rounded/settings.svg'
@@ -31,7 +49,6 @@ import download from '@material-symbols/svg-400/rounded/download.svg'
 import back from '@material-symbols/svg-400/rounded/arrow_back.svg'
 import edit from '@material-symbols/svg-400/rounded/edit.svg'
 import deleteIcon from '@material-symbols/svg-400/rounded/delete.svg'
-import event from '@material-symbols/svg-400/rounded/event.svg'
 import hardDrive from '@material-symbols/svg-400/rounded/hard_drive.svg'
 import wifi from '@material-symbols/svg-400/rounded/wifi.svg'
 import wifiOff from '@material-symbols/svg-400/rounded/wifi_off.svg'
@@ -39,10 +56,18 @@ import { normalizeIconKey } from './iconCatalogue'
 
 const icons = {
   clock: schedule,
+  event,
+  history,
+  favorite,
+  health,
+  medical,
+  medication,
+  fitness,
+  running,
+  cycling,
+  sleep,
+  mindfulness,
   pets,
-  dog,
-  cat,
-  bone,
   bed,
   grooming,
   car,
@@ -52,16 +77,27 @@ const icons = {
   shower,
   air,
   laundry,
-  bath,
   water,
   home,
-  food,
+  meal,
+  coffee,
+  family,
+  children,
+  friends,
+  call,
+  book,
+  movie,
+  music,
+  travel,
   shopping,
-  health,
-  exercise,
-  clothes,
-  plants,
-  spray,
+  work,
+  study,
+  payment,
+  celebration,
+  birthday,
+  creative,
+  quit_smoking: quitSmoking,
+  punctuality: schedule,
   add,
   check,
   settings,
@@ -71,7 +107,6 @@ const icons = {
   back,
   edit,
   delete: deleteIcon,
-  event,
   hardDrive,
   wifi,
   wifiOff

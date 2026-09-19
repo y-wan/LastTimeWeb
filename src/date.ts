@@ -15,7 +15,7 @@ export function elapsedParts(from: Date, to = new Date()) {
 }
 
 export function formatElapsed(from: string | undefined, locale: Locale, now = new Date()) {
-  if (!from) return locale === 'zh-CN' ? '从未记录' : 'Never'
+  if (!from) return locale === 'zh-CN' ? '尚未记录' : 'Never recorded'
   const { unit, value } = elapsedParts(new Date(from), now)
   if (locale === 'zh-CN') {
     return unit === 'day' ? `${value} 天前` : unit === 'hour' ? `${value} 小时前` : `${value} 分钟前`

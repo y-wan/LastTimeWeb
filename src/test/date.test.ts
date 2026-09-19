@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { averageInterval, elapsedParts, formatInterval, formatSyncDateTime, formatSyncTime, historyGroup } from '../date'
+import { averageInterval, elapsedParts, formatElapsed, formatInterval, formatSyncDateTime, formatSyncTime, historyGroup } from '../date'
 
 describe('elapsed date behavior', () => {
   it('uses actual hours and minutes within the same calendar day', () => {
@@ -17,6 +17,11 @@ describe('elapsed date behavior', () => {
     expect(historyGroup(new Date(2026, 8, 12, 23).toISOString(), now)).toBe('recent')
     expect(historyGroup(new Date(2026, 8, 11, 23).toISOString(), now)).toBe('earlier')
     expect(historyGroup(undefined, now)).toBe('never')
+  })
+
+  it('uses the Android never-recorded wording for event values', () => {
+    expect(formatElapsed(undefined, 'en')).toBe('Never recorded')
+    expect(formatElapsed(undefined, 'zh-CN')).toBe('尚未记录')
   })
 
   it('formats a successful sync as a local time without a permanent date', () => {

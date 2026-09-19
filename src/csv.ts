@@ -1,4 +1,6 @@
 import type { EventRecord, OccurrenceRecord } from './types'
+import { normalizeEventColor } from './eventOptions'
+import { normalizeIconKey } from './iconCatalogue'
 
 const HEADERS = ['Event', 'Event Note', 'Icon', 'Color', 'Event Created', 'Occurrence', 'Occurrence Note']
 
@@ -79,8 +81,8 @@ export function importCsv(text: string, now = new Date()) {
         id: row.eventId || crypto.randomUUID(),
         name,
         note: row['Event Note'] || row.Note || '',
-        icon: row.Icon || row.icon || 'clock',
-        color: row.Color || row.color || '#e66d5b',
+        icon: normalizeIconKey(row.Icon || row.icon || 'event'),
+        color: normalizeEventColor(row.Color || row.color),
         createdAt: created,
         updatedAt: row.updatedAt || now.toISOString()
       }

@@ -17,7 +17,15 @@ describe('CSV portability', () => {
     expect(imported.events[0]).toMatchObject({
       name: event.name, note: event.note, icon: event.icon, color: event.color, createdAt: event.createdAt
     })
+
     expect(imported.occurrences[0]).toMatchObject({ occurredAt: occurrence.occurredAt, note: occurrence.note })
+    vi.unstubAllGlobals()
+  })
+
+  it('normalizes Android ARGB colors and legacy web icon aliases on import', () => {
+    vi.stubGlobal('crypto', { randomUUID: vi.fn().mockReturnValue('event-new') })
+    const imported = importCsv('Event,Icon,Color\nLegacy grooming,scissors,#FFF2A65A')
+    expect(imported.events[0]).toMatchObject({ icon: 'grooming', color: '#F2A65A' })
     vi.unstubAllGlobals()
   })
 
