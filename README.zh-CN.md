@@ -191,6 +191,8 @@ npx wrangler deploy
 
 OneDrive 上传使用 DriveItem ETag 和 `If-Match`；首次创建文件时使用 `If-None-Match`。写入方数据过期时不会覆盖新文件，而是重新读取本地与远端数据、再次合并，并最多重试三次。本地修改和同步操作在支持时共享 Web Lock，否则使用进程内锁，因此旧同步快照无法覆盖已排队的修改。冲突顺序仍依赖设备生成的 `updatedAt` 墙上时钟；如果设备时钟严重偏移，现实中较早的修改可能会看起来更新。
 
+当本地与远端记录已经完全一致时，同步仍会下载并校验远端文档，但会跳过重复的整文件上传。控制台会记录不含隐私数据的阶段耗时，仅包括各阶段时长、重试/上传状态和序列化字节数，不包含事项名称、备注、帐户 ID 或文件内容。
+
 ## 致谢
 
 Last Time 的核心理念与许多交互设计受到 [Sarun Wongpatcharapakorn](https://sarunw.com/) 开发的 [iOS 应用「上次」（Last Time Tracker）](https://apps.apple.com/app/id534982023)启发。可访问原产品的[官方网站](https://lasttimeapp.com/)或 [App Store 页面](https://apps.apple.com/app/id534982023)。感谢原作者创造了这种简洁实用的方式，让人记住某件事上次发生的时间。

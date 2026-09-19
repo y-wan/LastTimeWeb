@@ -1,4 +1,4 @@
-import { mergeDocuments } from './sync'
+import { canonicalStringify, mergeDocuments } from './sync'
 import type { SyncDocument } from './types'
 
 export interface RemoteIdentity {
@@ -32,6 +32,16 @@ export class SyncRetryExhaustedError extends Error {
   }
 }
 
+export function documentsHaveSameRecords(left: SyncDocument, right: SyncDocument) {
+  return canonicalStringify({
+    events: [...left.events].sort((a, b) => a.id.localeCompare(b.id)),
+    occurrences: [...left.occurrences].sort((a, b) => a.id.localeCompare(b.id))
+  }) === canonicalStringify({
+    events: [...right.events].sort((a, b) => a.id.localeCompare(b.id)),
+    occurrences: [...right.occurrences].sort((a, b) => a.id.localeCompare(b.id))
+  })
+}
+
 interface SyncEngineOptions {
   readLocal: () => Promise<SyncDocument>
   readRemote: () => Promise<RemoteSnapshot | undefined>
@@ -55,10 +65,13 @@ export async function synchronizeWithRetries({
     const merged = remote ? mergeDocuments(local, remote.document) : local
     await persistLocal(merged)
     const completedAt = now()
+    if (remote && documentsHaveSameRecords(merged, remote.document)) {
+      return { completedAt, document: remote.document, attempts: attempt, uploaded: false }
+    }
     const upload = { ...merged, updatedAt: completedAt }
     try {
       await writeRemote(upload, remote?.identity)
-      return { completedAt, document: upload, attempts: attempt }
+      return { completedAt, document: upload, attempts: attempt, uploaded: true }
     } catch (error) {
       if (!(error instanceof PreconditionFailedError)) throw error
       if (attempt === maxAttempts) throw new SyncRetryExhaustedError(maxAttempts)

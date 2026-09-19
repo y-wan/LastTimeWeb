@@ -13,6 +13,7 @@ import {
   type RemoteSnapshot
 } from './syncEngine'
 import { syncMetaKey } from './syncStatus'
+import { SyncDurationTrace } from './syncTiming'
 import type { SyncDocument } from './types'
 
 const clientId = import.meta.env.VITE_MS_CLIENT_ID as string | undefined
@@ -150,18 +151,25 @@ interface DriveItemMetadata {
   eTag: string
 }
 
-async function readRemote(accessToken: string): Promise<RemoteSnapshot | undefined> {
-  const response = await fetch(`${itemUrl}?$select=id,eTag`, {
-    headers: { Authorization: `Bearer ${accessToken}` }
+async function readRemote(accessToken: string, trace: SyncDurationTrace): Promise<RemoteSnapshot | undefined> {
+  const metadata = await trace.measure('remoteMetadata', async () => {
+    const response = await fetch(`${itemUrl}?$select=id,eTag`, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    })
+    if (response.status === 404) return undefined
+    if (!response.ok) throw new Error(`OneDrive metadata download failed (${response.status}): ${await response.text()}`)
+    const value = await response.json() as DriveItemMetadata
+    if (!value.id || !value.eTag) throw new Error('OneDrive sync file metadata is missing its ID or ETag')
+    return value
   })
-  if (response.status === 404) return undefined
-  if (!response.ok) throw new Error(`OneDrive metadata download failed (${response.status}): ${await response.text()}`)
-  const metadata = await response.json() as DriveItemMetadata
-  if (!metadata.id || !metadata.eTag) throw new Error('OneDrive sync file metadata is missing its ID or ETag')
-  const contentResponse = await fetch(fileUrl, { headers: { Authorization: `Bearer ${accessToken}` } })
-  if (!contentResponse.ok) throw new Error(`OneDrive download failed (${contentResponse.status}): ${await contentResponse.text()}`)
+  if (!metadata) return undefined
+  const document = await trace.measure('remoteContent', async () => {
+    const response = await fetch(fileUrl, { headers: { Authorization: `Bearer ${accessToken}` } })
+    if (!response.ok) throw new Error(`OneDrive download failed (${response.status}): ${await response.text()}`)
+    return response.json() as Promise<SyncDocument>
+  })
   return {
-    document: await contentResponse.json() as SyncDocument,
+    document,
     identity: { id: metadata.id, eTag: metadata.eTag }
   }
 }
@@ -191,31 +199,58 @@ let activeSync: Promise<SuccessfulSync | undefined> | undefined
 
 export function synchronize() {
   if (activeSync) return activeSync
+  const trace = new SyncDurationTrace()
+  let diagnostics = {
+    outcome: 'success' as 'success' | 'error' | 'skipped',
+    attempts: 0,
+    uploaded: false,
+    documentBytes: 0
+  }
   activeSync = (async () => {
     if (!navigator.onLine) throw new Error('Offline')
-    const account = await currentAccount()
-    if (!account) return
-    const accessToken = await token(account)
+    const account = await trace.measure('account', currentAccount)
+    if (!account) {
+      diagnostics.outcome = 'skipped'
+      return
+    }
+    const accessToken = await trace.measure('token', () => token(account))
+    const lockRequestedAt = trace.timestamp()
     return withDataOperationLock(async () => {
+      trace.addSince('lockWait', lockRequestedAt)
       const result = await synchronizeWithRetries({
-        readLocal: localDocument,
-        readRemote: () => readRemote(accessToken),
-        persistLocal: async (document) => {
+        readLocal: () => trace.measure('localRead', localDocument),
+        readRemote: () => readRemote(accessToken, trace),
+        persistLocal: (document) => trace.measure('localPersist', async () => {
           await db.transaction('rw', db.events, db.occurrences, async () => {
             await db.events.bulkPut(document.events)
             await db.occurrences.bulkPut(document.occurrences)
           })
-        },
-        writeRemote: (document, expected) => writeRemote(accessToken, document, expected),
+        }),
+        writeRemote: (document, expected) => trace.measure(
+          'remoteWrite',
+          () => writeRemote(accessToken, document, expected)
+        ),
         now: nowIso
       })
-      await db.syncMeta.put({
+      diagnostics = {
+        outcome: 'success',
+        attempts: result.attempts,
+        uploaded: result.uploaded,
+        documentBytes: new TextEncoder().encode(JSON.stringify(result.document)).byteLength
+      }
+      await trace.measure('syncMetaPersist', () => db.syncMeta.put({
         key: syncMetaKey(account.homeAccountId),
         accountId: account.homeAccountId,
         lastSyncedAt: result.completedAt
-      })
+      }))
       return { accountId: account.homeAccountId, completedAt: result.completedAt }
     })
-  })().finally(() => { activeSync = undefined })
+  })().catch((error) => {
+    diagnostics.outcome = 'error'
+    throw error
+  }).finally(() => {
+    console.info('[Last Time sync timing]', trace.summary(diagnostics))
+    activeSync = undefined
+  })
   return activeSync
 }

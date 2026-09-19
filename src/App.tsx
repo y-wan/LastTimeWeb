@@ -11,9 +11,9 @@ import { EVENT_COLORS } from './eventOptions'
 import { iconCatalogue, iconLabel } from './iconCatalogue'
 import { EventIcon, MaterialIcon, type MaterialIconName } from './icons'
 import { translator } from './i18n'
-import { currentAccount, isSyncConfigured, signIn, signOut, subscribeAuth, synchronize, type AuthSnapshot } from './onedrive'
+import { isSyncConfigured, signIn, signOut, subscribeAuth, synchronize, type AuthSnapshot } from './onedrive'
 import { activatePwaUpdate } from './pwaUpdate'
-import { currentAccountLastSync, syncMetaKey, syncPresentation, type SyncPresentation } from './syncStatus'
+import { currentAccountLastSync, syncMetaKey, syncPresentation, syncStatusLabel, type SyncPresentation } from './syncStatus'
 import { paletteCssVariables, resolvedPaletteRoles, THEME_PALETTES } from './themePalettes'
 import type { ColorTheme, EventRecord, Locale, OccurrenceRecord, SyncState, ThemeMode } from './types'
 import { updateStore, type UpdateSnapshot } from './updateStore'
@@ -50,17 +50,22 @@ function useSync(accountId?: string) {
       if (propagateError) throw new Error('Offline')
       return
     }
+    if (!isSyncConfigured()) {
+      setState('idle')
+      if (propagateError) throw new Error('Microsoft sign-in is required')
+      return
+    }
+    setState('syncing')
+    setError('')
     try {
-      if (!isSyncConfigured() || !(await currentAccount())) {
+      const completedAt = await synchronize()
+      if (!completedAt) {
         setState('idle')
         if (propagateError) throw new Error('Microsoft sign-in is required')
         return
       }
-      setState('syncing')
-      setError('')
-      const completedAt = await synchronize()
       setState('idle')
-      if (completedAt) setLastSuccessfulSync(completedAt)
+      setLastSuccessfulSync(completedAt)
     } catch (cause) {
       setState(navigator.onLine ? 'error' : 'offline')
       setError(cause instanceof Error ? cause.message : String(cause))
@@ -590,7 +595,12 @@ export default function App() {
           })}</div></section>
           <section className="settings-card"><h2>{t('sync')}</h2>
             {!isSyncConfigured() ? <p className="warning">{t('clientIdMissing')}</p> : !auth.ready ? <p>{t('checkingAccount')}</p> : auth.account ? <>
-              <p className="connected">{t('signedIn')}<strong>{identity?.primary}</strong>{identity?.secondary && <small>{identity.secondary}</small>}<small>{syncStatusLabel(syncStatus, t)}</small><small>{lastSuccessfulSyncAt ? `${t('lastSynced')}: ${formatSyncDateTime(lastSuccessfulSyncAt, locale)}` : t('neverSynced')}</small></p>
+              <ConnectedAccountSummary
+                identity={identity}
+                lastSuccessfulSyncAt={lastSuccessfulSyncAt}
+                locale={locale}
+                t={t}
+              />
               <div className="settings-actions"><button className="primary" disabled={sync.state === 'syncing' || sync.state === 'offline'} onClick={() => void sync.run()}>{sync.state === 'syncing' ? t('syncing') : sync.state === 'error' ? t('retry') : t('syncNow')}</button><button className="secondary" onClick={() => void disconnectMicrosoft()}>{t('signOut')}</button></div>
             </> : <><p>{t('deviceOnly')}</p><button className="primary wide" onClick={() => void connectMicrosoft()}>{t('signIn')}</button></>}
             {(auth.error || sync.error) && <p className="error-message">{auth.error || sync.error}</p>}
@@ -681,17 +691,26 @@ export default function App() {
   )
 }
 
-function syncStatusLabel(status: SyncPresentation, t: ReturnType<typeof translator>) {
-  if (status === 'checking') return t('checkingAccount')
-  if (status === 'deviceOnly') return t('deviceOnly')
-  if (status === 'notSynced') return t('notSyncedYet')
-  if (status === 'offline') return t('offlineWaiting')
-  if (status === 'syncing') return t('syncing')
-  if (status === 'error') return t('syncError')
-  return t('synced')
-}
-
-function SyncBadge({ status, error, t }: { status: SyncPresentation; error: string; t: ReturnType<typeof translator> }) {
+export function SyncBadge({ status, error, t }: { status: SyncPresentation; error: string; t: ReturnType<typeof translator> }) {
   const icon: MaterialIconName = status === 'deviceOnly' ? 'hardDrive' : status === 'offline' ? 'wifiOff' : 'wifi'
   return <span className={`sync-badge ${status}`} title={error}><MaterialIcon name={icon} size={14} />{syncStatusLabel(status, t)}</span>
+}
+
+export function ConnectedAccountSummary({
+  identity,
+  lastSuccessfulSyncAt,
+  locale,
+  t
+}: {
+  identity?: { primary: string; secondary: string }
+  lastSuccessfulSyncAt?: string
+  locale: Locale
+  t: ReturnType<typeof translator>
+}) {
+  return <p className="connected">
+    {t('signedIn')}
+    <strong>{identity?.primary}</strong>
+    {identity?.secondary && <small>{identity.secondary}</small>}
+    {lastSuccessfulSyncAt && <small>{t('lastSynced')}: {formatSyncDateTime(lastSuccessfulSyncAt, locale)}</small>}
+  </p>
 }

@@ -191,6 +191,8 @@ Events and occurrences use stable UUIDs and ISO `updatedAt` values. Deletions ar
 
 OneDrive uploads use the DriveItem ETag with `If-Match` (or `If-None-Match` when creating the file). A stale writer re-reads local and remote data, merges, and retries up to three times instead of overwriting a newer file. Local mutations and sync operations share a Web Lock where supported, with an in-process fallback, so a stale sync snapshot cannot overwrite a queued mutation. Conflict ordering still depends on device-generated wall-clock `updatedAt` values, so substantial clock skew can make an older real-world edit appear newer.
 
+When local and remote records are already identical, sync still downloads and verifies the remote document but skips the redundant full-file upload. A privacy-safe console timing entry reports only stage durations, retry/upload status, and serialized byte count—never event names, notes, account IDs, or file contents.
+
 ## Acknowledgements
 
 Last Time is inspired by [Last Time Tracker for iOS](https://apps.apple.com/app/id534982023) (`上次 - 跟踪您的重要事项` in the Chinese App Store) by [Sarun Wongpatcharapakorn](https://sarunw.com/). Visit the original product's [official website](https://lasttimeapp.com/) or [App Store listing](https://apps.apple.com/app/id534982023). Thank you to its creator for the thoughtful, simple way to remember when things last happened.
