@@ -11,16 +11,21 @@ permissions:
   contents: read
 
 concurrency:
-  group: production-smoke
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   smoke:
     name: Production smoke
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -30,4 +35,7 @@ jobs:
         name: Read package version
         run: node -e "console.log('value=' + require('./package.json').version)" >> "$GITHUB_OUTPUT"
       - name: Verify deployed commit
-        run: node scripts/production-smoke.mjs --version=${{ steps.version.outputs.value }} --sha=${{ github.sha }}
+        env:
+          EXPECTED_VERSION: ${{ steps.version.outputs.value }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: node scripts/production-smoke.mjs --version="$EXPECTED_VERSION" --sha="$EXPECTED_SHA"

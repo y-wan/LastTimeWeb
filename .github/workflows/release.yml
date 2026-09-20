@@ -9,29 +9,44 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
 
 jobs:
-  release:
-    name: Validate and release
+  validate:
+    name: Validate release
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: main
           fetch-depth: 0
-      - uses: actions/setup-node@v5
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version-file: .nvmrc
           cache: npm
       - name: Validate release target
         env:
           VERSION: ${{ inputs.version }}
+          EXPECTED_SHA: ${{ github.sha }}
         run: |
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Version must use the form X.Y.Z." >&2
+            exit 1
+          fi
+          test "$GITHUB_REF" = "refs/heads/main"
           test "$VERSION" = "$(node -p "require('./package.json').version")"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
           test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
           test -z "$(git status --porcelain)"
-          ! git rev-parse "refs/tags/v$VERSION" >/dev/null 2>&1
+          ! git rev-parse --verify --quiet "refs/tags/v$VERSION"
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
@@ -43,14 +58,41 @@ jobs:
       - name: Verify production target
         env:
           VERSION: ${{ inputs.version }}
-        run: node scripts/production-smoke.mjs --version=$VERSION --sha=${{ github.sha }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: node scripts/production-smoke.mjs --version="$VERSION" --sha="$EXPECTED_SHA"
+
+  publish:
+    name: Publish release
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
       - name: Create stable release
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ inputs.version }}
+          TARGET_SHA: ${{ github.sha }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "v$VERSION" -m "Last Time Web v$VERSION"
-          git push origin "v$VERSION"
-          gh release create "v$VERSION" --verify-tag --title "Last Time Web v$VERSION" --generate-notes --latest
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Version must use the form X.Y.Z." >&2
+            exit 1
+          fi
+          tag_sha="$(
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/tags" \
+              -f tag="v$VERSION" \
+              -f message="Last Time Web v$VERSION" \
+              -f object="$TARGET_SHA" \
+              -f type=commit \
+              --jq .sha
+          )"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f ref="refs/tags/v$VERSION" \
+            -f sha="$tag_sha"
+          gh release create "v$VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "Last Time Web v$VERSION" \
+            --generate-notes \
+            --latest
