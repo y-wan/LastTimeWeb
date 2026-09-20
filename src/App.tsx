@@ -354,7 +354,8 @@ export default function App() {
   const [undoId, setUndoId] = useState<string | null>(null)
   const undoIdRef = useRef<string | undefined>(undefined)
   const undoTimerRef = useRef<number | undefined>(undefined)
-  const [undoError, setUndoError] = useState('')
+  const [undoFailure, setUndoFailure] = useState<{ occurrenceId: string; detail: string } | null>(null)
+  const [undoRetrying, setUndoRetrying] = useState(false)
   const [auth, setAuth] = useState<AuthSnapshot>({ ready: !isSyncConfigured() })
   const [notice, setNotice] = useState('')
   const [syncNotice, setSyncNotice] = useState('')
@@ -483,7 +484,6 @@ export default function App() {
     const occurrence = await addOccurrence(eventId)
     window.clearTimeout(undoTimerRef.current)
     undoIdRef.current = occurrence.id
-    setUndoError('')
     setUndoId(occurrence.id)
     undoTimerRef.current = startUndoWindow(() => {
       if (undoIdRef.current !== occurrence.id) return
@@ -494,6 +494,22 @@ export default function App() {
     })
   }
 
+  const deleteMarkedOccurrence = async (occurrenceId: string) => {
+    setUndoRetrying(true)
+    try {
+      await deleteOccurrence(occurrenceId)
+      setUndoFailure(null)
+      mutate()
+    } catch (cause) {
+      setUndoFailure({
+        occurrenceId,
+        detail: cause instanceof Error ? cause.message : String(cause)
+      })
+    } finally {
+      setUndoRetrying(false)
+    }
+  }
+
   const undoLatest = () => {
     const occurrenceId = undoIdRef.current
     if (!occurrenceId) return
@@ -501,10 +517,7 @@ export default function App() {
     undoTimerRef.current = undefined
     undoIdRef.current = undefined
     setUndoId(null)
-    setUndoError('')
-    void deleteOccurrence(occurrenceId)
-      .then(() => mutate())
-      .catch((cause) => setUndoError(cause instanceof Error ? cause.message : String(cause)))
+    void deleteMarkedOccurrence(occurrenceId)
   }
 
   const closeOverlay = () => {
@@ -759,18 +772,22 @@ export default function App() {
       >
         {update.available && <button className="primary" disabled={update.applying} onClick={() => void activatePwaUpdate()}>{update.applying ? t('updating') : t('updateNow')}</button>}
       </Notice>}
-      {undoError && <Notice
+      {undoFailure && <Notice
         className="toast error-toast"
         message={t('undoFailed')}
-        detail={undoError}
+        detail={undoFailure.detail}
         showDetailsLabel={t('showDetails')}
         hideDetailsLabel={t('hideDetails')}
         copyDetailsLabel={t('copyDetails')}
         copiedLabel={t('copied')}
         copyFailedLabel={t('copyFailed')}
         dismissLabel={t('dismiss')}
-        onDismiss={() => setUndoError('')}
-      />}
+        onDismiss={() => setUndoFailure(null)}
+      >
+        <button className="primary" disabled={undoRetrying} onClick={() => void deleteMarkedOccurrence(undoFailure.occurrenceId)}>
+          {undoRetrying ? t('retrying') : t('retry')}
+        </button>
+      </Notice>}
       {syncNotice && <div className={`toast sync-toast ${undoId ? 'stacked' : ''}`}>{syncNotice}</div>}
       {undoId && <div className="toast"><span className="notice-message">{t('marked')}</span><button onClick={undoLatest}>{t('undo')}</button></div>}
     </div>
