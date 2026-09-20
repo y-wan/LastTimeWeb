@@ -1,4 +1,4 @@
-English | [Simplified Chinese](README.zh-CN.md)
+English | [简体中文](README.zh-CN.md)
 
 <p align="center">
   <img src="docs/images/last-time-hero.svg" width="900" alt="Last Time — Remember when it last happened." />
