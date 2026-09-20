@@ -1,24 +1,31 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="title description">
   <title id="title">Last Time</title>
   <desc id="description">Last Time clock mark, product name, and the tagline Remember when it last happened.</desc>
-  <rect width="1200" height="360" rx="36" fill="#FAF7F3"/>
-  <circle cx="1040" cy="68" r="76" fill="#E7EEFF"/>
-  <circle cx="1128" cy="288" r="106" fill="#F0E9FF"/>
-  <circle cx="948" cy="292" r="34" fill="#D8F2EE"/>
-  <g transform="translate(82 70)">
-    <rect width="220" height="220" rx="62" fill="#D65A3A"/>
-    <circle cx="110" cy="110" r="71" fill="#FFFFFF"/>
-    <path d="M110 60v54l42 25" fill="none" stroke="#0F8C80" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
-    <circle cx="110" cy="110" r="10" fill="#0F8C80"/>
-  </g>
-  <text x="358" y="164" fill="#25211F" font-family="Inter, ui-rounded, system-ui, sans-serif" font-size="82" font-weight="760" letter-spacing="-3">Last Time</text>
-  <text x="362" y="222" fill="#655E59" font-family="Inter, system-ui, sans-serif" font-size="28" font-weight="500">Remember when it last happened.</text>
-  <g transform="translate(362 256)">
-    <rect width="150" height="38" rx="19" fill="#F9DDD4"/>
-    <circle cx="24" cy="19" r="7" fill="#D65A3A"/>
-    <text x="42" y="25" fill="#8D301D" font-family="Inter, system-ui, sans-serif" font-size="17" font-weight="650">Offline first</text>
-    <rect x="164" width="244" height="38" rx="19" fill="#D5F2EE"/>
-    <circle cx="188" cy="19" r="7" fill="#0F8C80"/>
-    <text x="206" y="25" fill="#0B5F57" font-family="Inter, system-ui, sans-serif" font-size="17" font-weight="650">Optional OneDrive sync</text>
+  <defs>
+    <clipPath id="hero-clip">
+      <rect width="1200" height="360" rx="36"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#hero-clip)">
+    <rect width="1200" height="360" rx="36" fill="#FAF7F3"/>
+    <circle cx="1040" cy="68" r="76" fill="#E7EEFF"/>
+    <circle cx="1128" cy="288" r="106" fill="#F0E9FF"/>
+    <circle cx="948" cy="292" r="34" fill="#D8F2EE"/>
+    <g transform="translate(82 70)">
+      <rect width="220" height="220" rx="62" fill="#D65A3A"/>
+      <circle cx="110" cy="110" r="71" fill="#FFFFFF"/>
+      <path d="M110 60v54l42 25" fill="none" stroke="#0F8C80" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="110" cy="110" r="10" fill="#0F8C80"/>
+    </g>
+    <text x="358" y="164" fill="#25211F" font-family="Inter, ui-rounded, system-ui, sans-serif" font-size="82" font-weight="760" letter-spacing="-3">Last Time</text>
+    <text x="362" y="222" fill="#655E59" font-family="Inter, system-ui, sans-serif" font-size="28" font-weight="500">Remember when it last happened.</text>
+    <g transform="translate(362 256)">
+      <rect width="150" height="38" rx="19" fill="#F9DDD4"/>
+      <circle cx="24" cy="19" r="7" fill="#D65A3A"/>
+      <text x="42" y="25" fill="#8D301D" font-family="Inter, system-ui, sans-serif" font-size="17" font-weight="650">Offline first</text>
+      <rect x="164" width="244" height="38" rx="19" fill="#D5F2EE"/>
+      <circle cx="188" cy="19" r="7" fill="#0F8C80"/>
+      <text x="206" y="25" fill="#0B5F57" font-family="Inter, system-ui, sans-serif" font-size="17" font-weight="650">Optional OneDrive sync</text>
+    </g>
   </g>
 </svg>

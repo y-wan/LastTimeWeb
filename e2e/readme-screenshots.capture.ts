@@ -81,7 +81,7 @@ for (const locale of screenshotLocales) {
     await page.screenshot({ path: outputPath('home-light', locale) })
 
     await seed(page, locale, 'dark')
-    await page.getByRole('button', { name: locale === 'zh-CN' ? '添加事项' : 'Add item' }).click()
+    await page.getByRole('button', { name: locale === 'zh-CN' ? '添加事项' : 'Add item', exact: true }).first().click()
     await page.getByLabel(locale === 'zh-CN' ? '名称' : 'Name').fill(locale === 'zh-CN' ? '清洗咖啡机' : 'Clean the coffee machine')
     await page.getByLabel(locale === 'zh-CN' ? '备注' : 'Note').fill(locale === 'zh-CN' ? '包括冲煮头和接水盘' : 'Group head and drip tray')
     await page.screenshot({ path: outputPath('editor-dark', locale) })
