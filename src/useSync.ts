@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { isSyncConfigured, synchronize, type SuccessfulSync } from './onedrive'
 import type { SyncState } from './types'
 
-type SyncRequestOrigin = 'background' | 'user' | 'required'
+type SyncRequestOrigin = 'background' | 'mutation' | 'user' | 'required'
 
 interface ActiveSyncRequest {
   accountId: string
@@ -23,9 +23,10 @@ export function useSync(accountId?: string) {
   const accountIdRef = useRef(accountId)
   const observedAccountId = useRef<string | undefined>(undefined)
   const completionSequence = useRef(0)
+  const mutationRerunAccounts = useRef(new Set<string>())
   accountIdRef.current = accountId
 
-  const execute = useCallback((origin: SyncRequestOrigin, accountOverride?: string) => {
+  const execute = useCallback(function executeRequest(origin: SyncRequestOrigin, accountOverride?: string) {
     const requestedAccountId = accountOverride ?? accountIdRef.current
     const propagateError = origin === 'required'
     if (!navigator.onLine) {
@@ -42,6 +43,7 @@ export function useSync(accountId?: string) {
     const current = active.current
     if (current && current.accountId === requestedAccountId) {
       if (origin === 'user') current.announce = true
+      if (origin === 'mutation') mutationRerunAccounts.current.add(requestedAccountId)
       return propagateError ? current.promise : current.promise.catch(() => undefined)
     }
 
@@ -57,16 +59,23 @@ export function useSync(accountId?: string) {
     active.current = request
     void request.promise.then((result) => {
       if (active.current !== request || accountIdRef.current !== requestedAccountId) return
+      if (mutationRerunAccounts.current.has(requestedAccountId)) return
       setState('idle')
       if (result && request.announce) {
         setUserCompletion({ ...result, sequence: ++completionSequence.current })
       }
     }).catch((cause) => {
       if (active.current !== request || accountIdRef.current !== requestedAccountId) return
+      if (mutationRerunAccounts.current.has(requestedAccountId)) return
       setState(navigator.onLine ? 'error' : 'offline')
       setError(cause instanceof Error ? cause.message : String(cause))
     }).finally(() => {
-      if (active.current === request) active.current = undefined
+      if (active.current !== request) return
+      active.current = undefined
+      const rerun = mutationRerunAccounts.current.delete(requestedAccountId)
+      if (rerun && accountIdRef.current === requestedAccountId) {
+        void executeRequest(request.announce ? 'user' : 'background', requestedAccountId)
+      }
     })
     return propagateError ? request.promise : request.promise.catch(() => undefined)
   }, [])
@@ -80,8 +89,8 @@ export function useSync(accountId?: string) {
 
   const schedule = useCallback(() => {
     window.clearTimeout(timer.current)
-    timer.current = window.setTimeout(() => { void runBackground() }, 500)
-  }, [runBackground])
+    timer.current = window.setTimeout(() => { void execute('mutation') }, 500)
+  }, [execute])
 
   useEffect(() => {
     const changed = observedAccountId.current !== accountId

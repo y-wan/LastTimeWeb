@@ -47,6 +47,7 @@ interface SyncEngineOptions {
   readRemote: () => Promise<RemoteSnapshot | undefined>
   persistLocal: (document: SyncDocument) => Promise<void>
   writeRemote: (document: SyncDocument, expected: RemoteIdentity | undefined) => Promise<void>
+  withLocalLock?: <T>(operation: () => Promise<T>) => Promise<T>
   now?: () => string
   maxAttempts?: number
 }
@@ -56,14 +57,18 @@ export async function synchronizeWithRetries({
   readRemote,
   persistLocal,
   writeRemote,
+  withLocalLock = (operation) => operation(),
   now = () => new Date().toISOString(),
   maxAttempts = 3
 }: SyncEngineOptions) {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const remote = await readRemote()
-    const local = await readLocal()
-    const merged = remote ? mergeDocuments(local, remote.document) : local
-    await persistLocal(merged)
+    const merged = await withLocalLock(async () => {
+      const local = await readLocal()
+      const next = remote ? mergeDocuments(local, remote.document) : local
+      await persistLocal(next)
+      return next
+    })
     const completedAt = now()
     if (remote && documentsHaveSameRecords(merged, remote.document)) {
       return { completedAt, document: remote.document, attempts: attempt, uploaded: false }

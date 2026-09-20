@@ -284,37 +284,40 @@ export function synchronize() {
       return
     }
     const accessToken = await trace.measure('token', () => token(account))
-    const lockRequestedAt = trace.timestamp()
-    return withDataOperationLock(async () => {
-      trace.addSince('lockWait', lockRequestedAt)
-      const result = await synchronizeWithRetries({
-        readLocal: () => trace.measure('localRead', localDocument),
-        readRemote: () => readRemote(accessToken, trace),
-        persistLocal: (document) => trace.measure('localPersist', async () => {
-          await db.transaction('rw', db.events, db.occurrences, async () => {
-            await db.events.bulkPut(document.events)
-            await db.occurrences.bulkPut(document.occurrences)
-          })
-        }),
-        writeRemote: (document, expected) => trace.measure(
-          'remoteWrite',
-          () => writeRemote(accessToken, document, expected)
-        ),
-        now: nowIso
-      })
-      diagnostics = {
-        outcome: 'success',
-        attempts: result.attempts,
-        uploaded: result.uploaded,
-        documentBytes: new TextEncoder().encode(JSON.stringify(result.document)).byteLength
-      }
-      await trace.measure('syncMetaPersist', () => db.syncMeta.put({
-        key: syncMetaKey(account.homeAccountId),
-        accountId: account.homeAccountId,
-        lastSyncedAt: result.completedAt
-      }))
-      return { accountId: account.homeAccountId, completedAt: result.completedAt }
+    const result = await synchronizeWithRetries({
+      readLocal: () => trace.measure('localRead', localDocument),
+      readRemote: () => readRemote(accessToken, trace),
+      persistLocal: (document) => trace.measure('localPersist', async () => {
+        await db.transaction('rw', db.events, db.occurrences, async () => {
+          await db.events.bulkPut(document.events)
+          await db.occurrences.bulkPut(document.occurrences)
+        })
+      }),
+      writeRemote: (document, expected) => trace.measure(
+        'remoteWrite',
+        () => writeRemote(accessToken, document, expected)
+      ),
+      withLocalLock: (operation) => {
+        const lockRequestedAt = trace.timestamp()
+        return withDataOperationLock(async () => {
+          trace.addSince('lockWait', lockRequestedAt)
+          return await operation()
+        })
+      },
+      now: nowIso
     })
+    diagnostics = {
+      outcome: 'success',
+      attempts: result.attempts,
+      uploaded: result.uploaded,
+      documentBytes: new TextEncoder().encode(JSON.stringify(result.document)).byteLength
+    }
+    await trace.measure('syncMetaPersist', () => db.syncMeta.put({
+      key: syncMetaKey(account.homeAccountId),
+      accountId: account.homeAccountId,
+      lastSyncedAt: result.completedAt
+    }))
+    return { accountId: account.homeAccountId, completedAt: result.completedAt }
   })().catch((error) => {
     diagnostics.outcome = 'error'
     throw error

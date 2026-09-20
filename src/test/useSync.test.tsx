@@ -180,4 +180,65 @@ describe('sync request presentation', () => {
     expect(syncMock.synchronize).toHaveBeenCalledTimes(2)
     expect(result.current.userCompletion).toBeUndefined()
   })
+
+  it('runs a follow-up sync when a mutation lands during active work', async () => {
+    const first = deferred<{ accountId: string; completedAt: string } | undefined>()
+    syncMock.synchronize
+      .mockReturnValueOnce(first.promise)
+      .mockResolvedValueOnce({
+        accountId: 'account-a',
+        completedAt: '2026-09-20T00:01:00.000Z'
+      })
+    const { result } = renderHook(() => useSync('account-a'))
+    await waitFor(() => expect(syncMock.synchronize).toHaveBeenCalledOnce())
+    vi.useFakeTimers()
+
+    act(() => {
+      result.current.schedule()
+      vi.advanceTimersByTime(500)
+    })
+    expect(syncMock.synchronize).toHaveBeenCalledOnce()
+    vi.useRealTimers()
+
+    await act(async () => first.resolve({
+      accountId: 'account-a',
+      completedAt: '2026-09-20T00:00:00.000Z'
+    }))
+    await waitFor(() => expect(syncMock.synchronize).toHaveBeenCalledTimes(2))
+    expect(result.current.state).toBe('idle')
+  })
+
+  it('waits for the mutation follow-up before announcing manual sync completion', async () => {
+    const first = deferred<{ accountId: string; completedAt: string } | undefined>()
+    const second = deferred<{ accountId: string; completedAt: string } | undefined>()
+    syncMock.synchronize.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+    const { result } = renderHook(() => useSync('account-a'))
+    await waitFor(() => expect(syncMock.synchronize).toHaveBeenCalledOnce())
+    vi.useFakeTimers()
+
+    void result.current.runUser()
+    act(() => {
+      result.current.schedule()
+      vi.advanceTimersByTime(500)
+    })
+    vi.useRealTimers()
+    await act(async () => first.resolve({
+      accountId: 'account-a',
+      completedAt: '2026-09-20T00:00:00.000Z'
+    }))
+
+    await waitFor(() => expect(syncMock.synchronize).toHaveBeenCalledTimes(2))
+    expect(result.current.state).toBe('syncing')
+    expect(result.current.userCompletion).toBeUndefined()
+
+    await act(async () => second.resolve({
+      accountId: 'account-a',
+      completedAt: '2026-09-20T00:01:00.000Z'
+    }))
+    expect(result.current.state).toBe('idle')
+    expect(result.current.userCompletion).toMatchObject({
+      accountId: 'account-a',
+      completedAt: '2026-09-20T00:01:00.000Z'
+    })
+  })
 })

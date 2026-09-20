@@ -141,27 +141,67 @@ describe('conditional sync retries', () => {
     expect(attempts).toBe(3)
   })
 
-  it('queues a local mutation until sync persistence finishes', async () => {
+  it('releases the local data lock before a slow remote upload finishes', async () => {
     const lock = new AsyncOperationLock()
-    let releaseRemote = () => {}
-    const remoteWait = new Promise<void>((resolve) => { releaseRemote = resolve })
+    let releaseUpload = () => {}
+    let uploadStarted = () => {}
+    const uploadWait = new Promise<void>((resolve) => { releaseUpload = resolve })
+    const uploadStart = new Promise<void>((resolve) => { uploadStarted = resolve })
     let local = document([event('shared', 'Before')])
-    let followUpSyncScheduled = false
 
-    const sync = lock.run(() => synchronizeWithRetries({
+    const sync = synchronizeWithRetries({
       readLocal: async () => structuredClone(local),
-      readRemote: async () => { await remoteWait; return undefined },
+      readRemote: async () => undefined,
       persistLocal: async (next) => { local = structuredClone(next) },
-      writeRemote: async () => {}
-    }))
-    const mutation = lock.run(async () => {
-      local = document([event('shared', 'After', '2026-01-03T00:00:00.000Z')])
-    }).then(() => { followUpSyncScheduled = true })
+      writeRemote: async () => {
+        uploadStarted()
+        await uploadWait
+      },
+      withLocalLock: (operation) => lock.run(operation)
+    })
+    await uploadStart
 
-    releaseRemote()
-    await Promise.all([sync, mutation])
+    await lock.run(async () => {
+      local = document([event('shared', 'After', '2026-01-03T00:00:00.000Z')])
+    })
 
     expect(local.events[0].name).toBe('After')
-    expect(followUpSyncScheduled).toBe(true)
+
+    releaseUpload()
+    await sync
+  })
+
+  it('keeps the local merge and persistence atomic against mutations', async () => {
+    const lock = new AsyncOperationLock()
+    let releasePersist = () => {}
+    let persistStarted = () => {}
+    const persistWait = new Promise<void>((resolve) => { releasePersist = resolve })
+    const persistStart = new Promise<void>((resolve) => { persistStarted = resolve })
+    let local = document([event('shared', 'Before')])
+
+    const sync = synchronizeWithRetries({
+      readLocal: async () => structuredClone(local),
+      readRemote: async () => undefined,
+      persistLocal: async (next) => {
+        persistStarted()
+        await persistWait
+        local = structuredClone(next)
+      },
+      writeRemote: async () => {},
+      withLocalLock: (operation) => lock.run(operation)
+    })
+    await persistStart
+
+    let mutationCompleted = false
+    const mutation = lock.run(async () => {
+      local = document([event('shared', 'After', '2026-01-03T00:00:00.000Z')])
+      mutationCompleted = true
+    })
+    await Promise.resolve()
+    expect(mutationCompleted).toBe(false)
+
+    releasePersist()
+    await Promise.all([sync, mutation])
+    expect(local.events[0].name).toBe('After')
   })
 })
