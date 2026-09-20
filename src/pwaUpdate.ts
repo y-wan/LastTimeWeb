@@ -1,5 +1,11 @@
 import { registerSW } from 'virtual:pwa-register'
-import { performServiceWorkerUpdate, singleFlight, UpdateActivationTimeoutError } from './serviceWorkerUpdate'
+import {
+  checkServiceWorkerUpdate,
+  classifyServiceWorkerFailure,
+  performServiceWorkerUpdate,
+  singleFlight,
+  UpdateActivationTimeoutError
+} from './serviceWorkerUpdate'
 import { updateStore } from './updateStore'
 
 const CHECK_INTERVAL_MS = 60 * 60 * 1000
@@ -7,8 +13,11 @@ let applyUpdate: ((reloadPage?: boolean) => Promise<void>) | undefined
 let registration: ServiceWorkerRegistration | undefined
 let reloadRequested = false
 
-function reportError(error: unknown) {
-  updateStore.setError(error instanceof Error ? error.message : String(error))
+function reportActionableError(error: unknown) {
+  updateStore.setError(
+    error instanceof Error ? error.message : String(error),
+    classifyServiceWorkerFailure(error, navigator.onLine) === 'network' ? 'network' : 'failed'
+  )
 }
 
 export function initializePwaUpdates() {
@@ -18,16 +27,30 @@ export function initializePwaUpdates() {
     onRegisteredSW: (_serviceWorkerUrl, nextRegistration) => {
       registration = nextRegistration
       if (!nextRegistration) return
-      const check = () => {
-        if (navigator.onLine) void nextRegistration.update().catch(reportError)
-      }
+      const check = () => void checkServiceWorkerUpdate({
+        registration: nextRegistration,
+        online: navigator.onLine,
+        hasController: Boolean(navigator.serviceWorker.controller),
+        onBegin: () => updateStore.beginBackgroundCheck(),
+        onSuccess: () => updateStore.completeBackgroundCheck(),
+        onBackgroundNetworkFailure: () => updateStore.recordBackgroundNetworkFailure(),
+        onActionableFailure: reportActionableError
+      })
       check()
       window.setInterval(check, CHECK_INTERVAL_MS)
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') check()
       })
+      window.addEventListener('online', check)
     },
-    onRegisterError: reportError
+    onRegisterError: (error) => {
+      if (navigator.serviceWorker.controller &&
+          classifyServiceWorkerFailure(error, navigator.onLine) === 'network') {
+        updateStore.recordBackgroundNetworkFailure()
+      } else {
+        reportActionableError(error)
+      }
+    }
   })
 }
 
@@ -51,7 +74,11 @@ const runActivation = singleFlight(async () => {
   } catch (error) {
     updateStore.setError(
       error instanceof Error ? error.message : String(error),
-      error instanceof UpdateActivationTimeoutError ? 'timeout' : 'failed'
+      error instanceof UpdateActivationTimeoutError
+        ? 'timeout'
+        : classifyServiceWorkerFailure(error, navigator.onLine) === 'network'
+          ? 'network'
+          : 'failed'
     )
   }
 })

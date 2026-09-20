@@ -106,7 +106,17 @@ describe('Microsoft cold-start UI', () => {
     Object.defineProperty(navigator, 'onLine', { configurable: true, value: false })
     authMock.snapshot = { ready: true, status: 'reconnect-required', offline: true }
     authMock.retryAuthRestore.mockImplementation(async () => {
-      authMock.listener?.({ ready: true, status: 'reconnect-required' })
+      authMock.listener?.({
+        ready: true,
+        status: 'connected',
+        account: {
+          homeAccountId: 'home-account',
+          environment: 'login.microsoftonline.com',
+          tenantId: 'tenant',
+          username: 'person@example.com',
+          localAccountId: 'local-account'
+        }
+      })
       return true
     })
     render(<App />)
@@ -116,10 +126,8 @@ describe('Microsoft cold-start UI', () => {
     window.dispatchEvent(new Event('online'))
 
     await waitFor(() => expect(authMock.retryAuthRestore).toHaveBeenCalledOnce())
-    await waitFor(() => expect(authMock.synchronize).toHaveBeenCalledTimes(2))
-    for (const button of screen.getAllByRole('button', { name: 'Reconnect Microsoft' })) {
-      expect(button.hasAttribute('disabled')).toBe(false)
-    }
+    await waitFor(() => expect(authMock.synchronize).toHaveBeenCalledOnce())
+    expect(screen.queryByRole('button', { name: 'Reconnect Microsoft' })).toBeNull()
   })
 
   it('keeps first-use connection and restoring copy distinct', async () => {

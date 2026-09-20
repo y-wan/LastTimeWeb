@@ -16,6 +16,42 @@ export class UpdateActivationTimeoutError extends Error {
   }
 }
 
+export type ServiceWorkerFailureKind = 'network' | 'integrity'
+
+export function classifyServiceWorkerFailure(error: unknown, online = navigator.onLine): ServiceWorkerFailureKind {
+  if (!online) return 'network'
+  const message = error instanceof Error ? error.message : String(error)
+  if (/unsupported mime|syntax|evaluation|security|invalid scope|certificate|ssl/i.test(message)) return 'integrity'
+  if (/failed to fetch|networkerror|network error|fetching the script|connection|load failed/i.test(message)) return 'network'
+  return 'integrity'
+}
+
+export async function checkServiceWorkerUpdate(input: {
+  registration: ServiceWorkerRegistrationLike
+  online: boolean
+  hasController: boolean
+  onBegin: () => void
+  onSuccess: () => void
+  onBackgroundNetworkFailure: () => void
+  onActionableFailure: (error: unknown) => void
+}) {
+  if (!input.online) {
+    if (input.hasController) input.onBackgroundNetworkFailure()
+    return
+  }
+  input.onBegin()
+  try {
+    await input.registration.update()
+    input.onSuccess()
+  } catch (error) {
+    if (input.hasController && classifyServiceWorkerFailure(error, input.online) === 'network') {
+      input.onBackgroundNetworkFailure()
+    } else {
+      input.onActionableFailure(error)
+    }
+  }
+}
+
 const delay = (milliseconds: number) => new Promise<false>((resolve) => {
   window.setTimeout(() => resolve(false), milliseconds)
 })

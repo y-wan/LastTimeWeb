@@ -11,14 +11,15 @@ import { EVENT_COLORS } from './eventOptions'
 import { iconCatalogue, iconLabel } from './iconCatalogue'
 import { EventIcon, MaterialIcon, type MaterialIconName } from './icons'
 import { translator } from './i18n'
-import { isSyncConfigured, retryAuthRestore, signIn, signOut, subscribeAuth, synchronize, type AuthSnapshot } from './onedrive'
+import { isSyncConfigured, retryAuthRestore, signIn, signOut, subscribeAuth, type AuthSnapshot } from './onedrive'
 import { Notice } from './notifications'
 import { activatePwaUpdate } from './pwaUpdate'
 import { currentAccountLastSync, syncMetaKey, syncPresentation, syncStatusLabel, type SyncPresentation } from './syncStatus'
 import { paletteCssVariables, resolvedPaletteRoles, THEME_PALETTES } from './themePalettes'
-import type { ColorTheme, EventRecord, Locale, OccurrenceRecord, SyncState, ThemeMode } from './types'
+import type { ColorTheme, EventRecord, Locale, OccurrenceRecord, ThemeMode } from './types'
 import { startUndoWindow } from './undoWindow'
 import { updateStore, type UpdateSnapshot } from './updateStore'
+import { useSync } from './useSync'
 
 const EMPTY_EVENTS: EventRecord[] = []
 const EMPTY_OCCURRENCES: OccurrenceRecord[] = []
@@ -38,73 +39,6 @@ export function PalettePreview({ roles }: { roles: ReturnType<typeof resolvedPal
 function CopilotCredit({ text }: { text: string }) {
   const [prefix, suffix] = text.split('GitHub Copilot')
   return <span>{prefix}<a href="https://github.com/features/copilot" target="_blank" rel="noreferrer">GitHub Copilot</a>{suffix}</span>
-}
-
-function useSync(accountId?: string) {
-  const [state, setState] = useState<SyncState>(navigator.onLine ? 'idle' : 'offline')
-  const [error, setError] = useState('')
-  const [lastSuccessfulSync, setLastSuccessfulSync] = useState<{ accountId: string; completedAt: string }>()
-  const timer = useRef<number | undefined>(undefined)
-
-  const execute = useCallback(async (propagateError: boolean) => {
-    if (!navigator.onLine) {
-      setState('offline')
-      if (propagateError) throw new Error('Offline')
-      return
-    }
-    if (!isSyncConfigured()) {
-      setState('idle')
-      if (propagateError) throw new Error('Microsoft sign-in is required')
-      return
-    }
-    setState('syncing')
-    setError('')
-    try {
-      const completedAt = await synchronize()
-      if (!completedAt) {
-        setState('idle')
-        if (propagateError) throw new Error('Microsoft sign-in is required')
-        return
-      }
-      setState('idle')
-      setLastSuccessfulSync(completedAt)
-    } catch (cause) {
-      setState(navigator.onLine ? 'error' : 'offline')
-      setError(cause instanceof Error ? cause.message : String(cause))
-      if (propagateError) throw cause
-    }
-  }, [])
-  const run = useCallback(() => execute(false), [execute])
-  const runOrThrow = useCallback(() => execute(true), [execute])
-
-  useEffect(() => {
-    setError('')
-    setState(navigator.onLine ? 'idle' : 'offline')
-    setLastSuccessfulSync((current) => current?.accountId === accountId ? current : undefined)
-  }, [accountId])
-
-  const schedule = useCallback(() => {
-    window.clearTimeout(timer.current)
-    timer.current = window.setTimeout(run, 500)
-  }, [run])
-
-  useEffect(() => {
-    const online = () => { setState('idle'); void run() }
-    const offline = () => setState('offline')
-    const visible = () => { if (document.visibilityState === 'visible') void run() }
-    window.addEventListener('online', online)
-    window.addEventListener('offline', offline)
-    document.addEventListener('visibilitychange', visible)
-    void run()
-    return () => {
-      window.removeEventListener('online', online)
-      window.removeEventListener('offline', offline)
-      document.removeEventListener('visibilitychange', visible)
-      window.clearTimeout(timer.current)
-    }
-  }, [run])
-
-  return { state, error, lastSuccessfulSync, run, runOrThrow, schedule }
 }
 
 export function ConfirmationDialog({ title, body, safeLabel, destructiveLabel, destructiveDisabled = false, busy = false, children, onCancel, onConfirm }: {
@@ -384,7 +318,6 @@ export default function App() {
   const syncMeta = useLiveQuery(() => accountId ? db.syncMeta.get(syncMetaKey(accountId)) : undefined, [accountId])
   const lastSuccessfulSyncAt = currentAccountLastSync(accountId, syncMeta)
   const sync = useSync(accountId)
-  const runSync = sync.run
   const syncStatus = syncPresentation({
     authReady: auth.ready,
     accountId,
@@ -410,13 +343,11 @@ export default function App() {
   useEffect(() => subscribeAuth(setAuth), [])
   useEffect(() => {
     const retryWhenOnline = () => {
-      void retryAuthRestore().then((restored) => {
-        if (restored) void runSync()
-      })
+      void retryAuthRestore()
     }
     window.addEventListener('online', retryWhenOnline)
     return () => window.removeEventListener('online', retryWhenOnline)
-  }, [runSync])
+  }, [])
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)')
     const update = () => setSystemDark(media.matches)
@@ -454,14 +385,14 @@ export default function App() {
     return () => window.removeEventListener('popstate', onPopState)
   }, [editorDirty, t])
   useEffect(() => {
-    if (!sync.lastSuccessfulSync || sync.lastSuccessfulSync.accountId !== accountId) {
+    if (!sync.userCompletion || sync.userCompletion.accountId !== accountId) {
       setSyncNotice('')
       return
     }
-    setSyncNotice(`${t('syncSucceeded')} · ${formatSyncTime(sync.lastSuccessfulSync.completedAt, locale)}`)
+    setSyncNotice(`${t('syncSucceeded')} · ${formatSyncTime(sync.userCompletion.completedAt, locale)}`)
     const timer = window.setTimeout(() => setSyncNotice(''), 4_000)
     return () => window.clearTimeout(timer)
-  }, [accountId, locale, sync.lastSuccessfulSync, t])
+  }, [accountId, locale, sync.userCompletion, t])
   useEffect(() => {
     if (!notice) return
     const timer = window.setTimeout(() => setNotice(''), 4_000)
@@ -491,9 +422,11 @@ export default function App() {
   const undoFailure = undoFailures[0]
   const updateMessage = update.errorKind === 'timeout'
     ? t('updateTimeout')
-    : update.error
-      ? t('updateFailed')
-      : t('updateAvailable')
+    : update.errorKind === 'network'
+      ? t('updateNetworkFailed')
+      : update.error
+        ? t('updateFailed')
+        : t('updateAvailable')
 
   const markNow = async (eventId: string) => {
     const occurrence = await addOccurrence(eventId)
@@ -557,8 +490,8 @@ export default function App() {
   const connectMicrosoft = async () => {
     setAuth((current) => ({ ...current, error: undefined }))
     try {
-      await signIn()
-      await sync.run()
+      const account = await signIn()
+      await sync.runUser(account.homeAccountId)
     } catch (cause) {
       setAuth((current) => ({
         ...current,
@@ -611,7 +544,7 @@ export default function App() {
     setClearingData(true)
     setClearNotice(null)
     try {
-      await clearAllDataWorkflow(sync.runOrThrow, tombstoneAllData)
+      await clearAllDataWorkflow(sync.runRequired, tombstoneAllData)
       setClearStage(null)
       setNotice(t('clearSucceeded'))
     } catch (error) {
@@ -685,7 +618,7 @@ export default function App() {
                 locale={locale}
                 t={t}
               />
-              <div className="settings-actions"><button className="primary" disabled={sync.state === 'syncing' || sync.state === 'offline'} onClick={() => void sync.run()}>{sync.state === 'syncing' ? t('syncing') : sync.state === 'error' ? t('retry') : t('syncNow')}</button><button className="secondary" onClick={() => void disconnectMicrosoft()}>{t('signOut')}</button></div>
+              <div className="settings-actions"><button className="primary" disabled={sync.state === 'syncing' || sync.state === 'offline'} onClick={() => void sync.runUser()}>{sync.state === 'syncing' ? t('syncing') : sync.state === 'error' ? t('retry') : t('syncNow')}</button><button className="secondary" onClick={() => void disconnectMicrosoft()}>{t('signOut')}</button></div>
             </> : auth.status === 'reconnect-required' ? <>
               <p>{auth.offline ? t('reconnectMicrosoftOffline') : t('reconnectMicrosoftBody')}</p>
               <button className="primary wide" disabled={auth.offline} onClick={() => void connectMicrosoft()}>{t('reconnectMicrosoft')}</button>
@@ -828,7 +761,10 @@ export default function App() {
 
 export function SyncBadge({ status, t }: { status: SyncPresentation; t: ReturnType<typeof translator> }) {
   const icon: MaterialIconName = status === 'deviceOnly' ? 'hardDrive' : status === 'offline' ? 'wifiOff' : 'wifi'
-  return <span className={`sync-badge ${status}`} title={status === 'error' ? syncStatusLabel(status, t) : undefined}><MaterialIcon name={icon} size={14} />{syncStatusLabel(status, t)}</span>
+  return <span className={`sync-badge ${status}`} title={status === 'error' ? syncStatusLabel(status, t) : undefined}>
+    <MaterialIcon name={icon} size={14} />
+    <span className="sync-badge-label">{syncStatusLabel(status, t)}</span>
+  </span>
 }
 
 export function ConnectedAccountSummary({

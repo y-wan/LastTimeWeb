@@ -2,7 +2,8 @@ export interface UpdateSnapshot {
   available: boolean
   applying: boolean
   error?: string
-  errorKind?: 'failed' | 'timeout'
+  errorKind?: 'failed' | 'network' | 'timeout'
+  backgroundCheck?: 'network-failed'
 }
 
 export class UpdateStore {
@@ -22,11 +23,26 @@ export class UpdateStore {
   }
 
   setApplying() {
-    this.publish({ ...this.snapshot, applying: true, error: undefined, errorKind: undefined })
+    this.publish({ ...this.snapshot, applying: true, error: undefined, errorKind: undefined, backgroundCheck: undefined })
   }
 
-  setError(error: string, errorKind: 'failed' | 'timeout' = 'failed') {
+  setError(error: string, errorKind: 'failed' | 'network' | 'timeout' = 'failed') {
     this.publish({ ...this.snapshot, applying: false, error, errorKind })
+  }
+
+  beginBackgroundCheck() {
+    this.publish({ ...this.snapshot, backgroundCheck: undefined })
+  }
+
+  completeBackgroundCheck() {
+    this.publish({ ...this.snapshot, backgroundCheck: undefined })
+  }
+
+  recordBackgroundNetworkFailure() {
+    this.publish({
+      ...this.snapshot,
+      backgroundCheck: 'network-failed'
+    })
   }
 
   private publish(snapshot: UpdateSnapshot) {

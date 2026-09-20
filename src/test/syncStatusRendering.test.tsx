@@ -23,6 +23,7 @@ describe('sync status rendering', () => {
         </>)
 
         expect(screen.getAllByText(syncStatusLabel(status, t), { exact: true })).toHaveLength(1)
+        expect(document.querySelector('.sync-badge-label')?.textContent).toBe(syncStatusLabel(status, t))
       })
     }
   }
