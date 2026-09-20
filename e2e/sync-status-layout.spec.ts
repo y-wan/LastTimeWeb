@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test'
 
 const cases = [
-  { locale: 'en', label: 'Checking Microsoft…' },
-  { locale: 'zh-CN', label: '正在检查 Microsoft…' }
+  { locale: 'en', label: 'Checking Microsoft sign-in status…' },
+  { locale: 'zh-CN', label: '正在检查 Microsoft 登录状态…' }
 ] as const
 
 for (const width of [320, 390, 393]) {
@@ -14,8 +14,12 @@ for (const width of [320, 390, 393]) {
         document.documentElement.lang = locale
         const badge = document.querySelector<HTMLElement>('.sync-badge')!
         badge.className = 'sync-badge checking'
+        badge.setAttribute('aria-label', label)
         badge.querySelector<HTMLElement>('.sync-badge-label')!.textContent = label
       }, item)
+
+      await expect(page.locator('.sync-badge')).toHaveAccessibleName(item.label)
+      await expect(page.locator('.sync-badge-label')).toHaveText(item.label)
 
       const metrics = await page.locator('.sync-badge').evaluate((badge) => {
         const box = badge.getBoundingClientRect()

@@ -761,9 +761,10 @@ export default function App() {
 
 export function SyncBadge({ status, t }: { status: SyncPresentation; t: ReturnType<typeof translator> }) {
   const icon: MaterialIconName = status === 'deviceOnly' ? 'hardDrive' : status === 'offline' ? 'wifiOff' : 'wifi'
-  return <span className={`sync-badge ${status}`} title={status === 'error' ? syncStatusLabel(status, t) : undefined}>
+  const label = syncStatusLabel(status, t)
+  return <span className={`sync-badge ${status}`} aria-label={label} title={status === 'error' ? label : undefined}>
     <MaterialIcon name={icon} size={14} />
-    <span className="sync-badge-label">{syncStatusLabel(status, t)}</span>
+    <span className="sync-badge-label">{label}</span>
   </span>
 }
 
