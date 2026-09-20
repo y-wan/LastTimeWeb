@@ -14,12 +14,13 @@ describe('sync duration tracing', () => {
     await trace.measure('remoteContent', async () => { now += 17 })
     await trace.measure('remoteWrite', async () => { now += 30_000 })
 
-    expect(trace.summary({
+    const summary = trace.summary({
       outcome: 'success',
       attempts: 1,
       uploaded: true,
       documentBytes: 123_456
-    })).toEqual({
+    })
+    expect(summary).toEqual({
       totalMs: 30_048,
       stages: {
         token: 7,
@@ -33,5 +34,6 @@ describe('sync duration tracing', () => {
       uploaded: true,
       documentBytes: 123_456
     })
+    expect(JSON.stringify(summary)).not.toContain('private-person@example.com')
   })
 })

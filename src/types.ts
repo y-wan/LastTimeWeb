@@ -38,6 +38,12 @@ export interface SettingsRecord {
   colorTheme?: ColorTheme
 }
 
+export interface MicrosoftAuthStateRecord {
+  key: 'microsoft'
+  connectedBefore: true
+  loginHint?: string
+}
+
 export interface SyncMetaRecord {
   key: string
   accountId: string

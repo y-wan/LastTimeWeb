@@ -7,6 +7,7 @@ beforeEach(async () => {
   await db.occurrences.clear()
   await db.settings.clear()
   await db.syncMeta.clear()
+  await db.microsoftAuthState.clear()
 })
 
 describe('clear all data workflow', () => {
@@ -55,6 +56,7 @@ describe('clear all data workflow', () => {
     await db.occurrences.add({ id: 'occ-active', eventId: 'event-active', note: '', occurredAt: '2026-01-03T00:00:00.000Z', createdAt: '2026-01-03T00:00:00.000Z', updatedAt: '2026-01-03T00:00:00.000Z' })
     await db.settings.put({ key: 'settings', locale: 'zh-CN', theme: 'dark', colorTheme: 'sage' })
     await db.syncMeta.put({ key: 'sync:account', accountId: 'account', lastSyncedAt: '2026-01-04T00:00:00.000Z' })
+    await db.microsoftAuthState.put({ key: 'microsoft', connectedBefore: true, loginHint: 'person@example.com' })
 
     const timestamp = '2026-09-19T06:00:00.000Z'
     expect(await tombstoneAllData(timestamp)).toEqual({ events: 1, occurrences: 1, timestamp })
@@ -63,6 +65,10 @@ describe('clear all data workflow', () => {
     expect(await db.events.get('event-deleted')).toMatchObject({ deletedAt: '2026-01-02T00:00:00.000Z' })
     expect(await db.settings.get('settings')).toMatchObject({ locale: 'zh-CN', theme: 'dark', colorTheme: 'sage' })
     expect(await db.syncMeta.get('sync:account')).toMatchObject({ accountId: 'account', lastSyncedAt: '2026-01-04T00:00:00.000Z' })
+    expect(await db.microsoftAuthState.get('microsoft')).toMatchObject({
+      connectedBefore: true,
+      loginHint: 'person@example.com'
+    })
     expect(await tombstoneAllData('2026-09-20T00:00:00.000Z')).toMatchObject({ events: 0, occurrences: 0 })
   })
 })

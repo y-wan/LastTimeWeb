@@ -1,12 +1,13 @@
 import Dexie, { type EntityTable } from 'dexie'
 import { withDataOperationLock } from './operationLock'
-import type { EventRecord, OccurrenceRecord, SettingsRecord, SyncMetaRecord } from './types'
+import type { EventRecord, MicrosoftAuthStateRecord, OccurrenceRecord, SettingsRecord, SyncMetaRecord } from './types'
 
 export const db = new Dexie('last-time') as Dexie & {
   events: EntityTable<EventRecord, 'id'>
   occurrences: EntityTable<OccurrenceRecord, 'id'>
   settings: EntityTable<SettingsRecord, 'key'>
   syncMeta: EntityTable<SyncMetaRecord, 'key'>
+  microsoftAuthState: EntityTable<MicrosoftAuthStateRecord, 'key'>
 }
 
 db.version(1).stores({
@@ -16,8 +17,33 @@ db.version(1).stores({
   syncMeta: 'key'
 })
 
+db.version(2).stores({
+  events: 'id, updatedAt, deletedAt',
+  occurrences: 'id, eventId, occurredAt, updatedAt, deletedAt',
+  settings: 'key',
+  syncMeta: 'key',
+  microsoftAuthState: 'key'
+})
+
 export const nowIso = () => new Date().toISOString()
 export const newId = () => crypto.randomUUID()
+
+export function readMicrosoftAuthState() {
+  return db.microsoftAuthState.get('microsoft')
+}
+
+export function rememberMicrosoftConnection(loginHint?: string) {
+  const normalizedHint = loginHint?.trim()
+  return db.microsoftAuthState.put({
+    key: 'microsoft',
+    connectedBefore: true,
+    ...(normalizedHint ? { loginHint: normalizedHint } : {})
+  })
+}
+
+export function forgetMicrosoftConnection() {
+  return db.microsoftAuthState.delete('microsoft')
+}
 
 export async function createEvent(input: Pick<EventRecord, 'name' | 'note' | 'icon' | 'color'>) {
   return withDataOperationLock(async () => {

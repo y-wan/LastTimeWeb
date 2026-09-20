@@ -3,7 +3,20 @@ import {
   type AccountInfo, type Configuration
 } from '@azure/msal-browser'
 import { resolveCommonAuthority, rootRedirectUri, selectAccount } from './auth'
-import { db, nowIso } from './db'
+import {
+  initializeMicrosoftSession,
+  signInMicrosoft,
+  signOutMicrosoft,
+  type AuthSnapshot,
+  type MicrosoftAuthStateStore
+} from './authSession'
+import {
+  db,
+  forgetMicrosoftConnection,
+  nowIso,
+  readMicrosoftAuthState,
+  rememberMicrosoftConnection
+} from './db'
 import { withDataOperationLock } from './operationLock'
 import {
   PreconditionFailedError,
@@ -25,18 +38,26 @@ const fileUrl = 'https://graph.microsoft.com/v1.0/me/drive/special/approot:/last
 let msal: PublicClientApplication | undefined
 let initialization: Promise<PublicClientApplication | undefined> | undefined
 
-export interface AuthSnapshot {
-  ready: boolean
-  account?: AccountInfo
-  error?: string
+export type { AuthSnapshot } from './authSession'
+
+const authStateStore: MicrosoftAuthStateStore = {
+  read: readMicrosoftAuthState,
+  remember: rememberMicrosoftConnection,
+  forget: forgetMicrosoftConnection
 }
 
-let authSnapshot: AuthSnapshot = { ready: !clientId }
+let authSnapshot: AuthSnapshot = clientId
+  ? { ready: false, status: 'checking' }
+  : { ready: true, status: 'disconnected' }
 const authListeners = new Set<(snapshot: AuthSnapshot) => void>()
 
 function publishAuth(snapshot: AuthSnapshot) {
   authSnapshot = snapshot
   for (const listener of authListeners) listener(snapshot)
+}
+
+function isAuthConnected() {
+  return authSnapshot.status === 'connected'
 }
 
 function getMsal() {
@@ -62,15 +83,18 @@ async function initialize() {
   if (!initialization) {
     const attempt = (async () => {
       try {
-        await instance.initialize()
-        const result = await instance.handleRedirectPromise()
-        const account = selectAccount(result?.account, instance.getActiveAccount(), instance.getAllAccounts())
-        if (account) instance.setActiveAccount(account)
-        publishAuth({ ready: true, account })
+        const snapshot = await initializeMicrosoftSession({
+          client: instance,
+          store: authStateStore,
+          scopes,
+          online: navigator.onLine,
+          onRestoring: () => publishAuth({ ready: false, status: 'restoring' })
+        })
+        publishAuth(snapshot)
         return instance
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        publishAuth({ ready: true, error: message })
+        publishAuth({ ready: true, status: 'error', error: message })
         throw error
       }
     })()
@@ -93,8 +117,8 @@ export async function currentAccount() {
   if (account && instance.getActiveAccount()?.homeAccountId !== account.homeAccountId) {
     instance.setActiveAccount(account)
   }
-  if (authSnapshot.account?.homeAccountId !== account?.homeAccountId || !authSnapshot.ready || authSnapshot.error) {
-    publishAuth({ ready: true, account })
+  if (account && (authSnapshot.account?.homeAccountId !== account.homeAccountId || !authSnapshot.ready)) {
+    publishAuth({ ready: true, status: 'connected', account })
   }
   return account
 }
@@ -110,20 +134,45 @@ export function subscribeAuth(listener: (snapshot: AuthSnapshot) => void) {
   }
 }
 
+export async function retryAuthRestore() {
+  if (authSnapshot.status !== 'reconnect-required' || !authSnapshot.offline) {
+    return authSnapshot.status === 'connected'
+  }
+  initialization = undefined
+  publishAuth({ ready: false, status: 'restoring' })
+  try {
+    await initialize()
+  } catch {
+    return false
+  }
+  return isAuthConnected()
+}
+
 export async function signIn() {
   const instance = await initialize()
   if (!instance) throw new Error('VITE_MS_CLIENT_ID is not configured')
-  const result = await instance.loginPopup({ scopes, prompt: 'select_account' })
-  instance.setActiveAccount(result.account)
-  publishAuth({ ready: true, account: result.account })
-  return result.account
+  const account = await signInMicrosoft({
+    client: instance,
+    store: authStateStore,
+    scopes,
+    reconnecting: authSnapshot.status === 'reconnect-required'
+  })
+  publishAuth({ ready: true, status: 'connected', account })
+  return account
 }
 
 export async function signOut() {
   const instance = await initialize()
   const account = await currentAccount()
-  if (instance && account) await instance.logoutPopup({ account })
-  publishAuth({ ready: true })
+  let failure: unknown
+  try {
+    if (instance) await signOutMicrosoft({ client: instance, store: authStateStore, account })
+    else await authStateStore.forget()
+  } catch (error) {
+    failure = error
+  }
+  publishAuth({ ready: true, status: 'disconnected' })
+  if (failure) throw failure
 }
 
 async function token(account: AccountInfo) {
@@ -137,7 +186,7 @@ async function token(account: AccountInfo) {
   }
 }
 
-async function localDocument(): Promise<SyncDocument> {
+export async function localDocument(): Promise<SyncDocument> {
   return {
     version: 1,
     updatedAt: nowIso(),

@@ -18,6 +18,7 @@ beforeEach(async () => {
   await db.events.clear()
   await db.occurrences.clear()
   await db.settings.clear()
+  await db.microsoftAuthState.clear()
   await db.events.add({
     id: 'event-1',
     name: 'Fixture event',

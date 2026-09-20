@@ -7,9 +7,19 @@ import type { EventRecord, OccurrenceRecord } from '../types'
 beforeEach(async () => {
   await db.events.clear()
   await db.occurrences.clear()
+  await db.microsoftAuthState.clear()
 })
 
 describe('CSV portability', () => {
+  it('never includes the local Microsoft login hint', async () => {
+    await db.microsoftAuthState.put({
+      key: 'microsoft',
+      connectedBefore: true,
+      loginHint: 'private-person@example.com'
+    })
+    expect(exportCsv([], [])).not.toContain('private-person@example.com')
+  })
+
   it('round-trips stable IDs, names, notes, icon, color, and timestamps', async () => {
     const event: EventRecord = {
       id: 'event-1', name: 'Wash "car"', note: 'Before, rain', icon: 'car', color: '#177b78',

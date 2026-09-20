@@ -11,7 +11,7 @@ import { EVENT_COLORS } from './eventOptions'
 import { iconCatalogue, iconLabel } from './iconCatalogue'
 import { EventIcon, MaterialIcon, type MaterialIconName } from './icons'
 import { translator } from './i18n'
-import { isSyncConfigured, signIn, signOut, subscribeAuth, synchronize, type AuthSnapshot } from './onedrive'
+import { isSyncConfigured, retryAuthRestore, signIn, signOut, subscribeAuth, synchronize, type AuthSnapshot } from './onedrive'
 import { Notice } from './notifications'
 import { activatePwaUpdate } from './pwaUpdate'
 import { currentAccountLastSync, syncMetaKey, syncPresentation, syncStatusLabel, type SyncPresentation } from './syncStatus'
@@ -356,7 +356,11 @@ export default function App() {
   const undoTimerRef = useRef<number | undefined>(undefined)
   const [undoFailures, setUndoFailures] = useState<Array<{ occurrenceId: string; detail: string }>>([])
   const [undoRetrying, setUndoRetrying] = useState(false)
-  const [auth, setAuth] = useState<AuthSnapshot>({ ready: !isSyncConfigured() })
+  const [auth, setAuth] = useState<AuthSnapshot>(
+    isSyncConfigured()
+      ? { ready: false, status: 'checking' }
+      : { ready: true, status: 'disconnected' }
+  )
   const [notice, setNotice] = useState('')
   const [syncNotice, setSyncNotice] = useState('')
   const [update, setUpdate] = useState<UpdateSnapshot>({ available: false, applying: false })
@@ -380,6 +384,7 @@ export default function App() {
   const syncMeta = useLiveQuery(() => accountId ? db.syncMeta.get(syncMetaKey(accountId)) : undefined, [accountId])
   const lastSuccessfulSyncAt = currentAccountLastSync(accountId, syncMeta)
   const sync = useSync(accountId)
+  const runSync = sync.run
   const syncStatus = syncPresentation({
     authReady: auth.ready,
     accountId,
@@ -403,6 +408,15 @@ export default function App() {
     document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute('content', roles.background)
   }, [colorTheme, theme, locale, systemDark])
   useEffect(() => subscribeAuth(setAuth), [])
+  useEffect(() => {
+    const retryWhenOnline = () => {
+      void retryAuthRestore().then((restored) => {
+        if (restored) void runSync()
+      })
+    }
+    window.addEventListener('online', retryWhenOnline)
+    return () => window.removeEventListener('online', retryWhenOnline)
+  }, [runSync])
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)')
     const update = () => setSystemDark(media.matches)
@@ -546,7 +560,12 @@ export default function App() {
       await signIn()
       await sync.run()
     } catch (cause) {
-      setAuth({ ready: true, error: cause instanceof Error ? cause.message : String(cause) })
+      setAuth((current) => ({
+        ...current,
+        ready: true,
+        status: current.status === 'reconnect-required' ? 'reconnect-required' : 'error',
+        error: cause instanceof Error ? cause.message : String(cause)
+      }))
     }
   }
 
@@ -555,7 +574,13 @@ export default function App() {
     try {
       await signOut()
     } catch (cause) {
-      setAuth((current) => ({ ...current, ready: true, error: cause instanceof Error ? cause.message : String(cause) }))
+      setAuth((current) => ({
+        ...current,
+        ready: true,
+        status: 'disconnected',
+        account: undefined,
+        error: cause instanceof Error ? cause.message : String(cause)
+      }))
     }
   }
 
@@ -607,7 +632,9 @@ export default function App() {
         <div><h1>{t('appName')}</h1><p>{t('subtitle')}</p></div>
         <div className="sync-control">
           <SyncBadge status={syncStatus} t={t} />
-          {syncStatus === 'deviceOnly' && isSyncConfigured() && <button className="sync-cta" onClick={() => void connectMicrosoft()}>{t('signIn')}</button>}
+          {syncStatus === 'deviceOnly' && isSyncConfigured() && <button className="sync-cta" disabled={auth.offline} onClick={() => void connectMicrosoft()}>
+            {auth.status === 'reconnect-required' ? t('reconnectMicrosoft') : t('signIn')}
+          </button>}
         </div>
       </header>}
       {!overlayOpen && <main>
@@ -651,7 +678,7 @@ export default function App() {
           </button>
           })}</div></section>
           <section className="settings-card"><h2>{t('sync')}</h2>
-            {!isSyncConfigured() ? <p className="warning">{t('clientIdMissing')}</p> : !auth.ready ? <p>{t('checkingAccount')}</p> : auth.account ? <>
+            {!isSyncConfigured() ? <p className="warning">{t('clientIdMissing')}</p> : !auth.ready ? <p>{auth.status === 'restoring' ? t('restoringMicrosoft') : t('checkingAccount')}</p> : auth.account ? <>
               <ConnectedAccountSummary
                 identity={identity}
                 lastSuccessfulSyncAt={lastSuccessfulSyncAt}
@@ -659,6 +686,9 @@ export default function App() {
                 t={t}
               />
               <div className="settings-actions"><button className="primary" disabled={sync.state === 'syncing' || sync.state === 'offline'} onClick={() => void sync.run()}>{sync.state === 'syncing' ? t('syncing') : sync.state === 'error' ? t('retry') : t('syncNow')}</button><button className="secondary" onClick={() => void disconnectMicrosoft()}>{t('signOut')}</button></div>
+            </> : auth.status === 'reconnect-required' ? <>
+              <p>{auth.offline ? t('reconnectMicrosoftOffline') : t('reconnectMicrosoftBody')}</p>
+              <button className="primary wide" disabled={auth.offline} onClick={() => void connectMicrosoft()}>{t('reconnectMicrosoft')}</button>
             </> : <><p>{t('deviceOnly')}</p><button className="primary wide" onClick={() => void connectMicrosoft()}>{t('signIn')}</button></>}
             {settingsError && !settingsErrorDismissed && <Notice
               className="inline-notice error-message"
