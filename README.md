@@ -167,6 +167,16 @@ npx wrangler deploy
 
 Do not put `VITE_MS_CLIENT_ID` in `wrangler.jsonc`. Configure it as a Cloudflare build variable so Vite can embed the public application ID during the build. After the first deployment, add the exact HTTPS deployment URL as an SPA redirect URI in Microsoft Entra before enabling OneDrive.
 
+### Azure Static Web Apps test deployment
+
+The repository also contains an inert, manually triggered **Azure Static Web Apps test deploy** workflow. It preserves the repository's official-Actions-only policy: the workflow uses only SHA-pinned GitHub-maintained Actions and runs the Microsoft-published `@azure/static-web-apps-cli` package at the fixed version `2.0.10` instead of using a third-party deployment Action.
+
+Before the first run, create an Azure Static Web Apps **Free** resource without changing the production hostname, then add its deployment token as the GitHub repository secret `AZURE_STATIC_WEB_APPS_API_TOKEN`. Enter the generated Azure HTTPS origin as the workflow's `site_url` input. The workflow builds the exact selected commit, deploys `dist/`, and runs the existing production smoke test against that origin, including version and commit verification.
+
+OneDrive is disabled in the Azure test build unless the public Entra application ID is configured as the repository variable `AZURE_SWA_TEST_MS_CLIENT_ID`. Before setting that variable or testing OneDrive, add the exact Azure origin root, including the trailing slash, as an Entra SPA redirect URI. Never store the deployment token in a repository variable, file, workflow input, or log.
+
+`public/staticwebapp.config.json` supplies the Azure SPA fallback and cache policy. HTML, manifests, and the service worker revalidate on every load or update check; fingerprinted bundles and the versioned touch icon are immutable. Cloudflare remains unchanged and is the DNS rollback target until the Azure test meets the agreed validation period.
+
 ## Offline use and updates
 
 On desktop, use the install icon in the browser address bar. Mobile installation steps and Xiaomi/HyperOS troubleshooting are documented in [Use the app](#use-the-app).

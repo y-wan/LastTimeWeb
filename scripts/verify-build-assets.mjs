@@ -3,7 +3,7 @@ import { join } from 'node:path'
 
 const root = process.cwd()
 const html = readFileSync(join(root, 'dist', 'index.html'), 'utf8')
-const iconLink = '<link rel="apple-touch-icon" sizes="180x180" href="https://lasttimeweb.feliciameow.workers.dev/apple-touch-icon-20260919.png" />'
+const iconLink = '<link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon-20260919.png" />'
 const iconIndex = html.indexOf(iconLink)
 const localeBootstrapIndex = html.indexOf("const localeKey = 'last-time-app-locale'")
 const moduleScriptIndex = html.indexOf('<script type="module"')
@@ -39,4 +39,24 @@ if (serviceWorker.includes('new NavigationRoute(createHandlerBoundToURL("index.h
   throw new Error('Service worker must not route all navigations directly to precached index.html')
 }
 
-console.log('Verified build metadata, Apple touch icon, and network-first navigation handling.')
+const staticWebAppConfig = JSON.parse(readFileSync(join(root, 'dist', 'staticwebapp.config.json'), 'utf8'))
+const routes = new Map(staticWebAppConfig.routes?.map(({ route, headers }) => [route, headers]) ?? [])
+const requiredCacheControl = new Map([
+  ['/', 'no-cache, max-age=0, must-revalidate'],
+  ['/index.html', 'no-cache, max-age=0, must-revalidate'],
+  ['/sw.js', 'no-cache, no-store, must-revalidate'],
+  ['/manifest.*.webmanifest', 'no-cache, max-age=0, must-revalidate'],
+  ['/assets/*', 'public, max-age=31536000, immutable'],
+  ['/workbox-*.js', 'public, max-age=31536000, immutable'],
+  ['/apple-touch-icon-20260919.png', 'public, max-age=31536000, immutable']
+])
+for (const [route, cacheControl] of requiredCacheControl) {
+  if (routes.get(route)?.['Cache-Control'] !== cacheControl) {
+    throw new Error(`Azure Static Web Apps cache policy is missing for ${route}`)
+  }
+}
+if (staticWebAppConfig.navigationFallback?.rewrite !== '/index.html') {
+  throw new Error('Azure Static Web Apps must fall back to index.html for client-side navigation')
+}
+
+console.log('Verified build metadata, host-portable icons, PWA updates, and Azure hosting configuration.')
