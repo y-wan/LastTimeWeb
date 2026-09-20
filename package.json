@@ -3,11 +3,17 @@
   "private": true,
   "version": "1.0.2",
   "type": "module",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build && node scripts/verify-build-assets.mjs",
+    "build": "npm run check:cjk && tsc -b && vite build && node scripts/verify-build-assets.mjs",
+    "check:cjk": "node scripts/check-cjk.mjs",
+    "check:hygiene": "node scripts/check-repository-hygiene.mjs",
     "typecheck": "tsc -b --pretty false",
-    "lint": "eslint .",
+    "lighthouse": "lhci autorun --config=lighthouserc.json",
+    "lint": "eslint . && npm run check:cjk && npm run check:hygiene",
     "test": "vitest run",
     "test:layout": "playwright test e2e/palette-layout.spec.ts",
     "test:install-metadata": "playwright test e2e/install-metadata.spec.ts",
@@ -23,6 +29,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.35.0",
+    "@lhci/cli": "0.15.1",
     "@playwright/test": "^1.63.0",
     "@testing-library/react": "^16.3.0",
     "@types/node": "^24.3.1",

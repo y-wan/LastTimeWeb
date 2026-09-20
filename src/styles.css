@@ -203,6 +203,7 @@ legend { margin-bottom: 10px; font-weight: 800; }
 
 .toast { position: fixed; z-index: 50; bottom: calc(88px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 24px; min-width: 220px; max-width: calc(100% - 28px); padding: 13px 16px; border-radius: 18px; background: var(--text); color: var(--surface); box-shadow: 0 8px 24px rgba(0,0,0,.2); }
 .toast button { margin-left: auto; border: 0; background: transparent; color: var(--primary-container); font-weight: 850; }
+.undo-toast { width: max-content; }
 .error-toast { width: min(calc(100% - 28px), 620px); }
 .error-toast .notice-detail-toggle, .error-toast .notice-copy { color: var(--primary-container); }
 .error-toast .notice-detail { background: color-mix(in srgb, var(--surface) 12%, transparent); }

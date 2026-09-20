@@ -1,4 +1,4 @@
-English | [简体中文](README.zh-CN.md)
+English | [Simplified Chinese](README.zh-CN.md)
 
 <p align="center">
   <img src="docs/images/last-time-hero.svg" width="900" alt="Last Time — Remember when it last happened." />
@@ -57,7 +57,7 @@ Open the live PWA at **[https://lasttimeweb.feliciameow.workers.dev/](https://la
 3. Launch Last Time from the installed Home Screen icon.
 4. When the app shows **New version available**, choose **Update now**. The app waits for the new Service Worker to take control before reloading and shows a retryable error instead of hanging if activation times out.
 
-On first use, install metadata follows the browser's primary language. After you choose a language in Last Time, that effective app language drives the page title and install manifest on the current and future loads: Chinese uses `上次`; other languages use `Last Time`. Existing Home Screen icons may wait for the browser's installed-manifest refresh; remove and add the icon again to verify a name change immediately.
+On first use, install metadata follows the browser's primary language. After you choose a language in Last Time, that effective app language drives the localized page title and install manifest on the current and future loads. Existing Home Screen icons may wait for the browser's installed-manifest refresh; remove and add the icon again to verify a name change immediately.
 
 ### Install on Android
 
@@ -71,7 +71,7 @@ If Microsoft Edge opens **App info** instead of adding Last Time, grant Edge per
 
 **Settings → Apps → Manage apps → Microsoft Edge → Permissions / Other permissions → Home screen shortcuts**
 
-Enable **Home screen shortcuts** (shown as `桌面快捷方式` on Chinese systems), return to Edge, and choose **Add to Home screen** again. This permission—not the broader **Install unknown apps** permission—was the verified fix. The App info redirect is Android/HyperOS or browser behavior; Last Time does not redirect users there.
+Enable **Home screen shortcuts** in the Chinese system settings, return to Edge, and choose **Add to Home screen** again. This permission—not the broader **Install unknown apps** permission—was the verified fix. The App info redirect is Android/HyperOS or browser behavior; Last Time does not redirect users there.
 
 If HyperOS asks for broad unknown-app installation access, prefer trying Chrome instead. If you deliberately enable that access for installation, use it only for this trusted PWA and disable it afterward. Some Xiaomi builds create only a Home screen shortcut rather than listing the PWA as a separately installed app; the shortcut still launches the standalone web experience.
 
@@ -101,7 +101,7 @@ This permanently removes existing item/history data but keeps settings and Micro
 
 ## Run locally
 
-Requires Node.js 20 or newer.
+Requires Node.js 22. The pinned version is recorded in `.nvmrc`.
 
 ```powershell
 npm install
@@ -112,11 +112,15 @@ Production checks:
 
 ```powershell
 npm run lint
+npm run check:hygiene
 npm run typecheck
 npm test
-npm run test:layout
+npx playwright test
 npm run build
+npm run lighthouse
 ```
+
+`npm run lighthouse` runs three mobile-profile audits against the local production build. Scores are report-only; dedicated application and PWA tests remain authoritative.
 
 ## OneDrive setup
 
@@ -195,7 +199,7 @@ When local and remote records are already identical, sync still downloads and ve
 
 ## Acknowledgements
 
-Last Time is inspired by [Last Time Tracker for iOS](https://apps.apple.com/app/id534982023) (`上次 - 跟踪您的重要事项` in the Chinese App Store) by [Sarun Wongpatcharapakorn](https://sarunw.com/). Visit the original product's [official website](https://lasttimeapp.com/) or [App Store listing](https://apps.apple.com/app/id534982023). Thank you to its creator for the thoughtful, simple way to remember when things last happened.
+Last Time is inspired by [Last Time Tracker for iOS](https://apps.apple.com/app/id534982023), localized for the Chinese App Store, by [Sarun Wongpatcharapakorn](https://sarunw.com/). Visit the original product's [official website](https://lasttimeapp.com/) or [App Store listing](https://apps.apple.com/app/id534982023). Thank you to its creator for the thoughtful, simple way to remember when things last happened.
 
 If you only use iPhone and iPad and do not need cross-platform sync with Android, we encourage you to support and use the [original Last Time Tracker](https://apps.apple.com/app/id534982023).
 

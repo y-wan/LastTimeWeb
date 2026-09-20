@@ -1,0 +1,33 @@
+name: Production smoke
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "41 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-smoke
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Production smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - id: version
+        name: Read package version
+        run: node -e "console.log('value=' + require('./package.json').version)" >> "$GITHUB_OUTPUT"
+      - name: Verify deployed commit
+        run: node scripts/production-smoke.mjs --version=${{ steps.version.outputs.value }} --sha=${{ github.sha }}

@@ -1,0 +1,42 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:00"
+      timezone: UTC
+    open-pull-requests-limit: 8
+    groups:
+      react-vite-pwa:
+        patterns: [react, react-dom, "@types/react*", vite, "@vitejs/*", vite-plugin-pwa]
+        update-types: [minor, patch]
+      msal:
+        patterns: ["@azure/msal-browser"]
+        update-types: [minor, patch]
+      dexie:
+        patterns: [dexie, dexie-react-hooks]
+        update-types: [minor, patch]
+      test-tooling:
+        dependency-type: development
+        patterns: ["@lhci/*", "@playwright/*", "@testing-library/*", eslint, "eslint-plugin-*", typescript, typescript-eslint, vitest]
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:30"
+      timezone: UTC
+    open-pull-requests-limit: 4
+    groups:
+      github-actions:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]

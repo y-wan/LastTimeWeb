@@ -101,7 +101,7 @@ Chrome 和 Edge 148 起可以直接读取清单中的本地化字段。为兼容
 
 ## 本地运行
 
-需要 Node.js 20 或更高版本。
+需要 Node.js 22；固定版本记录在 `.nvmrc`。
 
 ```powershell
 npm install
@@ -112,11 +112,15 @@ npm run dev
 
 ```powershell
 npm run lint
+npm run check:hygiene
 npm run typecheck
 npm test
-npm run test:layout
+npx playwright test
 npm run build
+npm run lighthouse
 ```
+
+`npm run lighthouse` 会针对本地生产构建运行三次移动端配置审计。目前评分仅用于报告，不会阻止构建；应用与 PWA 的专项测试仍是功能验收依据。
 
 ## OneDrive 设置
 

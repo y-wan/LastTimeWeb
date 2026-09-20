@@ -10,16 +10,16 @@ import { canClearAllData, clearAllDataWorkflow, CloudDeletionPendingError } from
 import { EVENT_COLORS } from './eventOptions'
 import { iconCatalogue, iconLabel } from './iconCatalogue'
 import { EventIcon, MaterialIcon, type MaterialIconName } from './icons'
-import { translator } from './i18n'
+import { formatUndoBatchMessage, translator } from './i18n'
 import { isSyncConfigured, retryAuthRestore, signIn, signOut, subscribeAuth, type AuthSnapshot } from './onedrive'
 import { Notice } from './notifications'
 import { activatePwaUpdate } from './pwaUpdate'
 import { currentAccountLastSync, syncMetaKey, syncPresentation, syncStatusLabel, type SyncPresentation } from './syncStatus'
 import { paletteCssVariables, resolvedPaletteRoles, THEME_PALETTES } from './themePalettes'
 import type { ColorTheme, EventRecord, Locale, OccurrenceRecord, ThemeMode } from './types'
-import { startUndoWindow } from './undoWindow'
 import { updateStore, type UpdateSnapshot } from './updateStore'
 import { useSync } from './useSync'
+import { useUndoBatch } from './useUndoBatch'
 
 const EMPTY_EVENTS: EventRecord[] = []
 const EMPTY_OCCURRENCES: OccurrenceRecord[] = []
@@ -65,8 +65,7 @@ export function ConfirmationDialog({ title, body, safeLabel, destructiveLabel, d
   </div>
 }
 
-export function ClearDataDialog({ locale, stage, clearing, t, onStage, onCancel, onConfirm }: {
-  locale: Locale
+export function ClearDataDialog({ stage, clearing, t, onStage, onCancel, onConfirm }: {
   stage: 'scope' | 'confirm'
   clearing: boolean
   t: ReturnType<typeof translator>
@@ -75,7 +74,7 @@ export function ClearDataDialog({ locale, stage, clearing, t, onStage, onCancel,
   onConfirm: () => Promise<void>
 }) {
   const [confirmation, setConfirmation] = useState('')
-  const confirmationWord = locale === 'zh-CN' ? '清空' : 'DELETE'
+  const confirmationWord = t('clearConfirmationWord')
   return stage === 'scope'
     ? <ConfirmationDialog
       title={t('clearAllData')}
@@ -206,7 +205,7 @@ function OccurrenceEditor({ occurrence, t, onSave, onClose }: {
   )
 }
 
-export function EventDetail({ event, occurrences, locale, surfaceColor, t, onClose, onMutate, onEditEvent, onMarkNow, onRequestDeleteEvent, onRequestDeleteOccurrence }: {
+export function EventDetail({ event, occurrences, locale, surfaceColor, t, onClose, onMutate, onOccurrenceAdded, onEditEvent, onMarkNow, onRequestDeleteEvent, onRequestDeleteOccurrence }: {
   event: EventRecord
   occurrences: OccurrenceRecord[]
   locale: Locale
@@ -214,6 +213,7 @@ export function EventDetail({ event, occurrences, locale, surfaceColor, t, onClo
   t: ReturnType<typeof translator>
   onClose: () => void
   onMutate: () => void
+  onOccurrenceAdded: (occurrenceId: string) => void
   onEditEvent: () => void
   onMarkNow?: (eventId: string) => Promise<void>
   onRequestDeleteEvent: () => void
@@ -265,9 +265,15 @@ export function EventDetail({ event, occurrences, locale, surfaceColor, t, onClo
         </div>
       </section>
       {editing && <OccurrenceEditor occurrence={editing === 'new' ? undefined : editing} t={t} onClose={() => setEditing(null)} onSave={async (occurredAt, note) => {
-        if (editing === 'new') await addOccurrence(event.id, occurredAt, note)
-        else await updateOccurrence(editing.id, occurredAt, note)
-        setEditing(null); onMutate()
+        if (editing === 'new') {
+          const occurrence = await addOccurrence(event.id, occurredAt, note)
+          setEditing(null)
+          onOccurrenceAdded(occurrence.id)
+        } else {
+          await updateOccurrence(editing.id, occurredAt, note)
+          setEditing(null)
+          onMutate()
+        }
       }} />}
     </div>
   )
@@ -285,11 +291,6 @@ export default function App() {
   const [editingEvent, setEditingEvent] = useState<EventRecord | null | 'new'>(null)
   const [detailId, setDetailId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
-  const [undoId, setUndoId] = useState<string | null>(null)
-  const undoIdRef = useRef<string | undefined>(undefined)
-  const undoTimerRef = useRef<number | undefined>(undefined)
-  const [undoFailures, setUndoFailures] = useState<Array<{ occurrenceId: string; detail: string }>>([])
-  const [undoRetrying, setUndoRetrying] = useState(false)
   const [auth, setAuth] = useState<AuthSnapshot>(
     isSyncConfigured()
       ? { ready: false, status: 'checking' }
@@ -318,6 +319,9 @@ export default function App() {
   const syncMeta = useLiveQuery(() => accountId ? db.syncMeta.get(syncMetaKey(accountId)) : undefined, [accountId])
   const lastSuccessfulSyncAt = currentAccountLastSync(accountId, syncMeta)
   const sync = useSync(accountId)
+  const scheduleSync = sync.schedule
+  const mutate = useCallback(() => scheduleSync(), [scheduleSync])
+  const undo = useUndoBatch(deleteOccurrence, mutate)
   const syncStatus = syncPresentation({
     authReady: auth.ready,
     accountId,
@@ -398,9 +402,6 @@ export default function App() {
     const timer = window.setTimeout(() => setNotice(''), 4_000)
     return () => window.clearTimeout(timer)
   }, [notice])
-  useEffect(() => () => window.clearTimeout(undoTimerRef.current), [])
-
-  const mutate = useCallback(() => sync.schedule(), [sync])
   const settingsError = auth.error || sync.error
   useEffect(() => {
     setSettingsErrorDismissed(false)
@@ -419,7 +420,7 @@ export default function App() {
   const surfaceColor = resolvedPaletteRoles(colorTheme, theme, systemDark).surface
   const previewDark = theme === 'dark' || (theme === 'system' && systemDark)
   const identity = auth.account ? accountIdentity(auth.account) : undefined
-  const undoFailure = undoFailures[0]
+  const undoFailure = undo.failures[0]
   const updateMessage = update.errorKind === 'timeout'
     ? t('updateTimeout')
     : update.errorKind === 'network'
@@ -430,43 +431,7 @@ export default function App() {
 
   const markNow = async (eventId: string) => {
     const occurrence = await addOccurrence(eventId)
-    window.clearTimeout(undoTimerRef.current)
-    undoIdRef.current = occurrence.id
-    setUndoId(occurrence.id)
-    undoTimerRef.current = startUndoWindow(() => {
-      if (undoIdRef.current !== occurrence.id) return
-      undoIdRef.current = undefined
-      undoTimerRef.current = undefined
-      setUndoId(null)
-      mutate()
-    })
-  }
-
-  const deleteMarkedOccurrence = async (occurrenceId: string) => {
-    setUndoRetrying(true)
-    try {
-      await deleteOccurrence(occurrenceId)
-      setUndoFailures((current) => current.filter((failure) => failure.occurrenceId !== occurrenceId))
-      mutate()
-    } catch (cause) {
-      const failure = { occurrenceId, detail: cause instanceof Error ? cause.message : String(cause) }
-      setUndoFailures((current) => [
-        ...current.filter((item) => item.occurrenceId !== occurrenceId),
-        failure
-      ])
-    } finally {
-      setUndoRetrying(false)
-    }
-  }
-
-  const undoLatest = () => {
-    const occurrenceId = undoIdRef.current
-    if (!occurrenceId) return
-    window.clearTimeout(undoTimerRef.current)
-    undoTimerRef.current = undefined
-    undoIdRef.current = undefined
-    setUndoId(null)
-    void deleteMarkedOccurrence(occurrenceId)
+    undo.add(occurrence.id)
   }
 
   const closeOverlay = () => {
@@ -600,7 +565,7 @@ export default function App() {
           <button className="fab" aria-label={t('addEvent')} onClick={() => setEditingEvent('new')}><MaterialIcon name="add" size={26} /></button>
         </>}
         {tab === 'settings' && <div className="settings-page">
-          <section className="settings-card"><h2>{t('language')}</h2><div className="segmented"><button className={locale === 'en' ? 'active' : ''} onClick={() => void persistSettings('en', theme, colorTheme)}>English</button><button className={locale === 'zh-CN' ? 'active' : ''} onClick={() => void persistSettings('zh-CN', theme, colorTheme)}>简体中文</button></div></section>
+          <section className="settings-card"><h2>{t('language')}</h2><div className="segmented"><button className={locale === 'en' ? 'active' : ''} onClick={() => void persistSettings('en', theme, colorTheme)}>{t('englishLanguage')}</button><button className={locale === 'zh-CN' ? 'active' : ''} onClick={() => void persistSettings('zh-CN', theme, colorTheme)}>{t('simplifiedChineseLanguage')}</button></div></section>
           <section className="settings-card"><h2>{t('appearance')}</h2><div className="segmented">{(['system', 'light', 'dark'] as ThemeMode[]).map((value) => <button className={theme === value ? 'active' : ''} key={value} onClick={() => void persistSettings(locale, value, colorTheme)}>{t(value)}</button>)}</div></section>
           <section className="settings-card palette-section"><h2>{t('colorTheme')}</h2><div className="palette-list">{THEME_PALETTES.map((palette) => {
             const roles = previewDark ? palette.dark : palette.light
@@ -655,11 +620,11 @@ export default function App() {
           <section className="settings-card about-card">
             <h2>{t('aboutCredits')}</h2>
             <p>{locale === 'en' ? <>
-              Inspired by <a href="https://apps.apple.com/app/id534982023" target="_blank" rel="noreferrer">Last Time Tracker</a> for iOS by <a href="https://sarunw.com/" target="_blank" rel="noreferrer">Sarun Wongpatcharapakorn</a>. {t('aboutCreditThanks')} {t('aboutIndependent')}
+              {t('aboutInspiredPrefix')}<a href="https://apps.apple.com/app/id534982023" target="_blank" rel="noreferrer">{t('originalAppName')}</a>{t('aboutForIosBy')}<a href="https://sarunw.com/" target="_blank" rel="noreferrer">Sarun Wongpatcharapakorn</a>{t('aboutInspiredSuffix')}{t('aboutCreditThanks')} {t('aboutIndependent')}
             </> : <>
-              本应用的核心理念与许多交互设计受到 <a href="https://sarunw.com/" target="_blank" rel="noreferrer">Sarun Wongpatcharapakorn</a> 开发的 iOS 应用<a href="https://apps.apple.com/app/id534982023" target="_blank" rel="noreferrer">「上次」（Last Time Tracker）</a>启发。{t('aboutCreditThanks')}{t('aboutIndependent')}
+              {t('aboutInspiredPrefix')}<a href="https://sarunw.com/" target="_blank" rel="noreferrer">Sarun Wongpatcharapakorn</a>{t('aboutDevelopedApp')}<a href="https://apps.apple.com/app/id534982023" target="_blank" rel="noreferrer">{t('originalAppName')}</a>{t('aboutInspiredSuffix')}{t('aboutCreditThanks')}{t('aboutIndependent')}
             </>}</p>
-            <p>{t('aboutRecommendation')} <a href="https://apps.apple.com/app/id534982023" target="_blank" rel="noreferrer">{locale === 'en' ? 'original Last Time Tracker' : '原版「上次」'}</a>{locale === 'en' ? '.' : '。'}</p>
+            <p>{t('aboutRecommendation')} <a href="https://apps.apple.com/app/id534982023" target="_blank" rel="noreferrer">{t('originalAppLink')}</a>{t('sentenceEnd')}</p>
             <div className="about-links">
               <a className="external-link" href="https://lasttimeapp.com/" target="_blank" rel="noreferrer">
                 <MaterialIcon name="external" size={20} /><span>{t('officialWebsite')}</span>
@@ -702,8 +667,8 @@ export default function App() {
         else await updateEvent(editingEvent.id, draft)
         mutate(); closeOverlay()
       }} />}
-      {detailEvent && <EventDetail event={detailEvent} occurrences={occurrences} locale={locale} surfaceColor={surfaceColor} t={t} onClose={closeOverlay} onMutate={mutate} onMarkNow={markNow} onEditEvent={() => { setDetailId(null); setEditingEvent(detailEvent) }} onRequestDeleteEvent={() => setConfirmation({ kind: 'deleteEvent', eventId: detailEvent.id })} onRequestDeleteOccurrence={(occurrenceId) => setConfirmation({ kind: 'deleteOccurrence', occurrenceId })} />}
-      {clearStage && <ClearDataDialog locale={locale} stage={clearStage} clearing={clearingData} t={t} onStage={setClearStage} onCancel={() => { if (!clearingData) setClearStage(null) }} onConfirm={confirmClearAllData} />}
+      {detailEvent && <EventDetail event={detailEvent} occurrences={occurrences} locale={locale} surfaceColor={surfaceColor} t={t} onClose={closeOverlay} onMutate={mutate} onOccurrenceAdded={undo.add} onMarkNow={markNow} onEditEvent={() => { setDetailId(null); setEditingEvent(detailEvent) }} onRequestDeleteEvent={() => setConfirmation({ kind: 'deleteEvent', eventId: detailEvent.id })} onRequestDeleteOccurrence={(occurrenceId) => setConfirmation({ kind: 'deleteOccurrence', occurrenceId })} />}
+      {clearStage && <ClearDataDialog stage={clearStage} clearing={clearingData} t={t} onStage={setClearStage} onCancel={() => { if (!clearingData) setClearStage(null) }} onConfirm={confirmClearAllData} />}
       {confirmation && <ConfirmationDialog
         title={t(confirmation.kind === 'discard' ? 'discardTitle' : confirmation.kind === 'deleteEvent' ? 'deleteEventTitle' : 'deleteRecordTitle')}
         body={t(confirmation.kind === 'discard' ? 'discardBody' : confirmation.kind === 'deleteEvent' ? 'deleteEventBody' : 'deleteRecordBody')}
@@ -747,14 +712,21 @@ export default function App() {
         copiedLabel={t('copied')}
         copyFailedLabel={t('copyFailed')}
         dismissLabel={t('dismiss')}
-        onDismiss={() => setUndoFailures((current) => current.filter((failure) => failure.occurrenceId !== undoFailure.occurrenceId))}
+        onDismiss={() => undo.dismissFailure(undoFailure.occurrenceId)}
       >
-        <button className="primary" disabled={undoRetrying} onClick={() => void deleteMarkedOccurrence(undoFailure.occurrenceId)}>
-          {undoRetrying ? t('retrying') : t('retry')}
+        <button className="primary" disabled={undo.retryingOccurrenceId === undoFailure.occurrenceId} onClick={() => void undo.retryFailure(undoFailure.occurrenceId)}>
+          {undo.retryingOccurrenceId === undoFailure.occurrenceId ? t('retrying') : t('retry')}
         </button>
       </Notice>}
-      {syncNotice && <div className={`toast sync-toast ${undoId ? 'stacked' : ''}`}>{syncNotice}</div>}
-      {undoId && <div className="toast"><span className="notice-message">{t('marked')}</span><button onClick={undoLatest}>{t('undo')}</button></div>}
+      {syncNotice && <div className={`toast sync-toast ${undo.batch ? 'stacked' : ''}`}>{syncNotice}</div>}
+      {undo.batch && <div className="toast undo-toast" role="status">
+        <span className="notice-message">
+          {undo.batch.occurrenceIds.length === 1
+            ? t('marked')
+            : formatUndoBatchMessage(locale, undo.batch.occurrenceIds.length)}
+        </span>
+        <button onClick={undo.undo}>{undo.batch.occurrenceIds.length === 1 ? t('undo') : t('undoAll')}</button>
+      </div>}
     </div>
   )
 }

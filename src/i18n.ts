@@ -6,10 +6,11 @@ export const translations = {
     history: 'History', settings: 'Settings', markNow: 'Mark done now', edit: 'Edit', delete: 'Delete',
     save: 'Save', cancel: 'Cancel', name: 'Name', note: 'Note', optional: 'Optional', time: 'Time',
     icon: 'Icon', color: 'Color', eventDetails: 'Item details', occurrences: 'History',
-    addOccurrence: 'Add past record', occurredAt: 'Date & time', undo: 'Undo', marked: 'Recorded as done',
+    addOccurrence: 'Add past record', occurredAt: 'Date & time', undo: 'Undo', undoAll: 'Undo all', marked: 'Recorded as done',
     today: 'Today', recent: 'Past 7 days', earlier: 'Earlier', never: 'Never recorded',
     emptyTitle: 'Nothing here yet', empty: 'Add an item to remember when it last happened.', noHistory: 'Never recorded',
-    language: 'Language', appearance: 'Appearance', system: 'System', light: 'Light', dark: 'Dark',
+    language: 'Language', englishLanguage: 'English', simplifiedChineseLanguage: '简体中文',
+    appearance: 'Appearance', system: 'System', light: 'Light', dark: 'Dark',
     data: 'Data', import: 'Import CSV', export: 'Export CSV', sync: 'OneDrive sync',
     signIn: 'Sign in with Microsoft', signOut: 'Sign out', syncNow: 'Sync now',
     offline: 'Offline', syncing: 'Syncing…', synced: 'Synced', syncError: 'Sync error',
@@ -39,7 +40,10 @@ export const translations = {
     updateFailed: 'Update failed. Try again.', syncFailed: 'Sync failed. Try again.',
     accountFailed: 'Microsoft account operation failed. Try again.', undoFailed: 'Could not undo the record.',
     search: 'Search items', clear: 'Clear', eventPreview: 'Live preview', previewPlaceholder: 'Item name',
-    aboutCredits: 'About & credits',
+    aboutCredits: 'About & credits', clearConfirmationWord: 'DELETE',
+    aboutInspiredPrefix: 'Inspired by ', aboutForIosBy: ' for iOS by ', aboutDevelopedApp: ' developed the iOS app ',
+    aboutInspiredSuffix: '. ', originalAppName: 'Last Time Tracker', originalAppLink: 'original Last Time Tracker',
+    sentenceEnd: '.',
     aboutCreditThanks: 'Thank you to its creator for the thoughtful, simple way to remember when things last happened.',
     aboutIndependent: 'This is an independent, unofficial implementation created to support cross-platform use and OneDrive sync.',
     aboutRecommendation: 'If you only use iPhone and iPad and do not need cross-platform sync with Android, we encourage you to support and use the',
@@ -58,10 +62,11 @@ export const translations = {
     history: '历史记录', settings: '设置', markNow: '立即记录完成', edit: '编辑', delete: '删除',
     save: '保存', cancel: '取消', name: '名称', note: '备注', optional: '选填', time: '时间',
     icon: '图标', color: '颜色', eventDetails: '事项详情', occurrences: '历史记录',
-    addOccurrence: '补录', occurredAt: '日期和时间', undo: '撤销', marked: '已记录完成',
+    addOccurrence: '补录', occurredAt: '日期和时间', undo: '撤销', undoAll: '全部撤销', marked: '已记录完成',
     today: '今天', recent: '最近 7 天', earlier: '更早', never: '尚未记录',
     emptyTitle: '还没有事项', empty: '添加一个事项，记录上次完成时间。', noHistory: '尚未记录',
-    language: '语言', appearance: '外观', system: '跟随系统', light: '浅色', dark: '深色',
+    language: '语言', englishLanguage: 'English', simplifiedChineseLanguage: '简体中文',
+    appearance: '外观', system: '跟随系统', light: '浅色', dark: '深色',
     data: '数据', import: '导入 CSV', export: '导出 CSV', sync: 'OneDrive 同步',
     signIn: '登录 Microsoft', signOut: '退出登录', syncNow: '立即同步',
     offline: '离线', syncing: '同步中…', synced: '已同步', syncError: '同步错误',
@@ -91,7 +96,10 @@ export const translations = {
     updateFailed: '更新失败，请重试。', syncFailed: '同步失败，请重试。',
     accountFailed: 'Microsoft 帐户操作失败，请重试。', undoFailed: '无法撤销这条记录。',
     search: '搜索事项', clear: '清除', eventPreview: '实时预览', previewPlaceholder: '事项名称',
-    aboutCredits: '关于与致谢',
+    aboutCredits: '关于与致谢', clearConfirmationWord: '清空',
+    aboutInspiredPrefix: '本应用的核心理念与许多交互设计受到 ', aboutForIosBy: '，iOS 版作者：', aboutDevelopedApp: ' 开发的 iOS 应用',
+    aboutInspiredSuffix: '启发。', originalAppName: '「上次」（Last Time Tracker）', originalAppLink: '原版「上次」',
+    sentenceEnd: '。',
     aboutCreditThanks: '感谢原作者创造了这种简洁实用的记录方式。',
     aboutIndependent: '本项目是独立、非官方实现，旨在支持跨平台使用和 OneDrive 同步。',
     aboutRecommendation: '如果你只在 iPhone 和 iPad 上使用、不需要与 Android 跨平台同步，我们推荐优先支持并使用',
@@ -109,4 +117,8 @@ export const translations = {
 
 export function translator(locale: Locale) {
   return (key: keyof typeof translations.en) => translations[locale][key]
+}
+
+export function formatUndoBatchMessage(locale: Locale, count: number) {
+  return locale === 'zh-CN' ? `已添加 ${count} 条记录` : `${count} records added`
 }

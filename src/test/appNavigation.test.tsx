@@ -15,6 +15,7 @@ beforeEach(async () => {
     })
   })
   window.history.replaceState(null, '', '/')
+  localStorage.clear()
   await db.events.clear()
   await db.occurrences.clear()
   await db.settings.clear()
@@ -58,6 +59,52 @@ describe('full-screen navigation', () => {
   })
 
   describe('mark undo window', () => {
+    it('consolidates multiple records into one English undo action', async () => {
+      render(<App />)
+      const record = await screen.findByLabelText('Record Fixture event')
+
+      fireEvent.click(record)
+      expect(await screen.findByText('Recorded as done')).not.toBeNull()
+      expect(screen.getByRole('button', { name: 'Undo' })).not.toBeNull()
+      await waitFor(async () => expect(await db.occurrences.count()).toBe(2))
+
+      fireEvent.click(screen.getByLabelText('Record Fixture event'))
+      await waitFor(async () => expect(await db.occurrences.count()).toBe(3))
+      expect(await screen.findByText('2 records added')).not.toBeNull()
+      fireEvent.click(screen.getByRole('button', { name: 'Undo all' }))
+      expect(screen.queryByText('2 records added')).toBeNull()
+
+      await waitFor(async () => {
+        const added = (await db.occurrences.toArray()).filter((item) => item.id !== 'occurrence-1')
+        expect(added).toHaveLength(2)
+        expect(added.every((item) => Boolean(item.deletedAt))).toBe(true)
+      })
+    })
+
+    it('localizes the consolidated undo message and action in Chinese', async () => {
+      await db.settings.put({ key: 'settings', locale: 'zh-CN', theme: 'system', colorTheme: 'vitalOrange' })
+      render(<App />)
+      const record = await screen.findByLabelText('记录 Fixture event')
+
+      fireEvent.click(record)
+      await waitFor(async () => expect(await db.occurrences.count()).toBe(2))
+      fireEvent.click(screen.getByLabelText('记录 Fixture event'))
+      await waitFor(async () => expect(await db.occurrences.count()).toBe(3))
+
+      expect(await screen.findByText('已添加 2 条记录')).not.toBeNull()
+      expect(screen.getByRole('button', { name: '全部撤销' })).not.toBeNull()
+    })
+
+    it('adds a past record to the same undo flow', async () => {
+      render(<App />)
+      fireEvent.click(await screen.findByText('Fixture event'))
+      fireEvent.click(await screen.findByRole('button', { name: 'Add past record' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+      expect(await screen.findByText('Recorded as done')).not.toBeNull()
+      expect(screen.getByRole('button', { name: 'Undo' })).not.toBeNull()
+    })
+
     it('dismisses immediately even while the tombstone waits for the data lock', async () => {
       render(<App />)
       fireEvent.click(await screen.findByLabelText('Record Fixture event'))

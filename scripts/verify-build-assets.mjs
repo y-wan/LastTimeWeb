@@ -7,10 +7,16 @@ const iconLink = '<link rel="apple-touch-icon" sizes="180x180" href="https://las
 const iconIndex = html.indexOf(iconLink)
 const localeBootstrapIndex = html.indexOf("const localeKey = 'last-time-app-locale'")
 const moduleScriptIndex = html.indexOf('<script type="module"')
+const packageVersion = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version
+const versionMeta = new RegExp(`<meta name="last-time-version" content="${packageVersion}"\\s*/?>`)
+const buildMeta = /<meta name="last-time-build" content="[0-9a-f]{40}"\s*\/?>/
 
 if (iconIndex < 0) throw new Error('Built HTML is missing the absolute Apple touch icon link')
 if (localeBootstrapIndex < 0 || moduleScriptIndex < 0 || iconIndex > localeBootstrapIndex || iconIndex > moduleScriptIndex) {
   throw new Error('Apple touch icon link must appear before locale and module runtime code')
+}
+if (!versionMeta.test(html) || !buildMeta.test(html)) {
+  throw new Error('Built HTML is missing release version or commit metadata')
 }
 
 const png = readFileSync(join(root, 'dist', 'apple-touch-icon-20260919.png'))
@@ -33,4 +39,4 @@ if (serviceWorker.includes('new NavigationRoute(createHandlerBoundToURL("index.h
   throw new Error('Service worker must not route all navigations directly to precached index.html')
 }
 
-console.log('Verified built Apple touch icon and network-first navigation handling.')
+console.log('Verified build metadata, Apple touch icon, and network-first navigation handling.')
