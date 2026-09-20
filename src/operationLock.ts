@@ -19,9 +19,9 @@ export class AsyncOperationLock {
 
 const dataOperationLock = new AsyncOperationLock()
 
-export function withDataOperationLock<T>(operation: () => Promise<T>) {
+export async function withDataOperationLock<T>(operation: () => Promise<T>): Promise<T> {
   if (typeof navigator !== 'undefined' && navigator.locks) {
-    return navigator.locks.request('last-time-data-operation', operation)
+    return await navigator.locks.request('last-time-data-operation', async () => await operation())
   }
-  return dataOperationLock.run(operation)
+  return await dataOperationLock.run(operation)
 }
