@@ -12,10 +12,12 @@ import { iconCatalogue, iconLabel } from './iconCatalogue'
 import { EventIcon, MaterialIcon, type MaterialIconName } from './icons'
 import { translator } from './i18n'
 import { isSyncConfigured, signIn, signOut, subscribeAuth, synchronize, type AuthSnapshot } from './onedrive'
+import { Notice } from './notifications'
 import { activatePwaUpdate } from './pwaUpdate'
 import { currentAccountLastSync, syncMetaKey, syncPresentation, syncStatusLabel, type SyncPresentation } from './syncStatus'
 import { paletteCssVariables, resolvedPaletteRoles, THEME_PALETTES } from './themePalettes'
 import type { ColorTheme, EventRecord, Locale, OccurrenceRecord, SyncState, ThemeMode } from './types'
+import { startUndoWindow } from './undoWindow'
 import { updateStore, type UpdateSnapshot } from './updateStore'
 
 const EMPTY_EVENTS: EventRecord[] = []
@@ -349,16 +351,20 @@ export default function App() {
   const [editingEvent, setEditingEvent] = useState<EventRecord | null | 'new'>(null)
   const [detailId, setDetailId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
-  const [undo, setUndo] = useState<{ id: string; timer: number } | null>(null)
+  const [undoId, setUndoId] = useState<string | null>(null)
+  const undoIdRef = useRef<string | undefined>(undefined)
+  const undoTimerRef = useRef<number | undefined>(undefined)
+  const [undoError, setUndoError] = useState('')
   const [auth, setAuth] = useState<AuthSnapshot>({ ready: !isSyncConfigured() })
   const [notice, setNotice] = useState('')
   const [syncNotice, setSyncNotice] = useState('')
   const [update, setUpdate] = useState<UpdateSnapshot>({ available: false, applying: false })
   const [updateDismissed, setUpdateDismissed] = useState(false)
+  const [settingsErrorDismissed, setSettingsErrorDismissed] = useState(false)
   const [editorDirty, setEditorDirty] = useState(false)
   const [clearStage, setClearStage] = useState<'scope' | 'confirm' | null>(null)
   const [clearingData, setClearingData] = useState(false)
-  const [clearNotice, setClearNotice] = useState('')
+  const [clearNotice, setClearNotice] = useState<{ summary: string; detail: string } | null>(null)
   const [confirmation, setConfirmation] = useState<
     { kind: 'discard' } |
     { kind: 'deleteEvent'; eventId: string } |
@@ -406,6 +412,9 @@ export default function App() {
     setUpdate(snapshot)
     if (snapshot.available && !snapshot.error) setUpdateDismissed(false)
   }), [])
+  useEffect(() => {
+    if (update.error) setUpdateDismissed(false)
+  }, [update.error])
   const overlayOpen = Boolean(editingEvent || detailId)
   useEffect(() => {
     if (overlayOpen && !overlayHistoryActive.current) {
@@ -438,8 +447,18 @@ export default function App() {
     const timer = window.setTimeout(() => setSyncNotice(''), 4_000)
     return () => window.clearTimeout(timer)
   }, [accountId, locale, sync.lastSuccessfulSync, t])
+  useEffect(() => {
+    if (!notice) return
+    const timer = window.setTimeout(() => setNotice(''), 4_000)
+    return () => window.clearTimeout(timer)
+  }, [notice])
+  useEffect(() => () => window.clearTimeout(undoTimerRef.current), [])
 
   const mutate = useCallback(() => sync.schedule(), [sync])
+  const settingsError = auth.error || sync.error
+  useEffect(() => {
+    setSettingsErrorDismissed(false)
+  }, [settingsError])
   const latestByEvent = useMemo(() => {
     const map = new Map<string, OccurrenceRecord>()
     for (const item of occurrences) {
@@ -457,15 +476,35 @@ export default function App() {
   const updateMessage = update.errorKind === 'timeout'
     ? t('updateTimeout')
     : update.error
-      ? `${t('updateFailed')} ${update.error}`
+      ? t('updateFailed')
       : t('updateAvailable')
 
   const markNow = async (eventId: string) => {
     const occurrence = await addOccurrence(eventId)
-    if (undo) window.clearTimeout(undo.timer)
-    const timer = window.setTimeout(() => setUndo(null), 10_000)
-    setUndo({ id: occurrence.id, timer })
-    mutate()
+    window.clearTimeout(undoTimerRef.current)
+    undoIdRef.current = occurrence.id
+    setUndoError('')
+    setUndoId(occurrence.id)
+    undoTimerRef.current = startUndoWindow(() => {
+      if (undoIdRef.current !== occurrence.id) return
+      undoIdRef.current = undefined
+      undoTimerRef.current = undefined
+      setUndoId(null)
+      mutate()
+    })
+  }
+
+  const undoLatest = () => {
+    const occurrenceId = undoIdRef.current
+    if (!occurrenceId) return
+    window.clearTimeout(undoTimerRef.current)
+    undoTimerRef.current = undefined
+    undoIdRef.current = undefined
+    setUndoId(null)
+    setUndoError('')
+    void deleteOccurrence(occurrenceId)
+      .then(() => mutate())
+      .catch((cause) => setUndoError(cause instanceof Error ? cause.message : String(cause)))
   }
 
   const closeOverlay = () => {
@@ -487,6 +526,7 @@ export default function App() {
   }
 
   const connectMicrosoft = async () => {
+    setAuth((current) => ({ ...current, error: undefined }))
     try {
       await signIn()
       await sync.run()
@@ -496,6 +536,7 @@ export default function App() {
   }
 
   const disconnectMicrosoft = async () => {
+    setAuth((current) => ({ ...current, error: undefined }))
     try {
       await signOut()
     } catch (cause) {
@@ -528,16 +569,17 @@ export default function App() {
   const confirmClearAllData = async () => {
     if (!clearEnabled) return
     setClearingData(true)
-    setClearNotice('')
+    setClearNotice(null)
     try {
       await clearAllDataWorkflow(sync.runOrThrow, tombstoneAllData)
       setClearStage(null)
       setNotice(t('clearSucceeded'))
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
-      setClearNotice(error instanceof CloudDeletionPendingError
-        ? `${t('clearCloudPending')} ${detail}`
-        : `${t('clearPreSyncFailed')} ${detail}`)
+      setClearNotice({
+        summary: error instanceof CloudDeletionPendingError ? t('clearCloudPending') : t('clearPreSyncFailed'),
+        detail
+      })
       setClearStage(null)
     } finally {
       setClearingData(false)
@@ -549,7 +591,7 @@ export default function App() {
       {!overlayOpen && <header>
         <div><h1>{t('appName')}</h1><p>{t('subtitle')}</p></div>
         <div className="sync-control">
-          <SyncBadge status={syncStatus} error={auth.error || sync.error} t={t} />
+          <SyncBadge status={syncStatus} t={t} />
           {syncStatus === 'deviceOnly' && isSyncConfigured() && <button className="sync-cta" onClick={() => void connectMicrosoft()}>{t('signIn')}</button>}
         </div>
       </header>}
@@ -603,7 +645,18 @@ export default function App() {
               />
               <div className="settings-actions"><button className="primary" disabled={sync.state === 'syncing' || sync.state === 'offline'} onClick={() => void sync.run()}>{sync.state === 'syncing' ? t('syncing') : sync.state === 'error' ? t('retry') : t('syncNow')}</button><button className="secondary" onClick={() => void disconnectMicrosoft()}>{t('signOut')}</button></div>
             </> : <><p>{t('deviceOnly')}</p><button className="primary wide" onClick={() => void connectMicrosoft()}>{t('signIn')}</button></>}
-            {(auth.error || sync.error) && <p className="error-message">{auth.error || sync.error}</p>}
+            {settingsError && !settingsErrorDismissed && <Notice
+              className="inline-notice error-message"
+              message={auth.error ? t('accountFailed') : t('syncFailed')}
+              detail={settingsError}
+              showDetailsLabel={t('showDetails')}
+              hideDetailsLabel={t('hideDetails')}
+              copyDetailsLabel={t('copyDetails')}
+              copiedLabel={t('copied')}
+              copyFailedLabel={t('copyFailed')}
+              dismissLabel={t('dismiss')}
+              onDismiss={() => setSettingsErrorDismissed(true)}
+            />}
           </section>
           <section className="settings-card"><h2>{t('data')}</h2><div className="data-actions">
             <label className="data-action"><span><MaterialIcon name="upload" size={22} /></span><div><strong>{t('import')}</strong><small>{t('importHint')}</small></div><input hidden type="file" accept=".csv,text/csv" onChange={async (event) => {
@@ -645,9 +698,20 @@ export default function App() {
           <section className="settings-card danger-zone">
             <h2>{t('dangerZone')}</h2>
             <p>{t('clearDataSummary')}</p>
-            <button className="danger-button wide" disabled={!clearEnabled} onClick={() => { setClearNotice(''); setClearStage('scope') }}>{t('clearAllData')}</button>
+            <button className="danger-button wide" disabled={!clearEnabled} onClick={() => { setClearNotice(null); setClearStage('scope') }}>{t('clearAllData')}</button>
             {clearDisabledReason && <small>{clearDisabledReason}</small>}
-            {clearNotice && <p className="error-message">{clearNotice}</p>}
+            {clearNotice && <Notice
+              className="inline-notice error-message"
+              message={clearNotice.summary}
+              detail={clearNotice.detail}
+              showDetailsLabel={t('showDetails')}
+              hideDetailsLabel={t('hideDetails')}
+              copyDetailsLabel={t('copyDetails')}
+              copiedLabel={t('copied')}
+              copyFailedLabel={t('copyFailed')}
+              dismissLabel={t('dismiss')}
+              onDismiss={() => setClearNotice(null)}
+            />}
           </section>
         </div>}
       </main>}
@@ -681,19 +745,41 @@ export default function App() {
           }
         })()}
       />}
-      {(update.available || update.error) && !updateDismissed && <div className="update-banner">
-        <span>{updateMessage}</span>
-        <div><button className="secondary" disabled={update.applying} onClick={() => setUpdateDismissed(true)}>{t('later')}</button>{update.available && <button className="primary" disabled={update.applying} onClick={() => void activatePwaUpdate()}>{update.applying ? t('updating') : t('updateNow')}</button>}</div>
-      </div>}
-      {syncNotice && <div className={`toast sync-toast ${undo ? 'stacked' : ''}`}>{syncNotice}</div>}
-      {undo && <div className="toast">{t('marked')}<button onClick={async () => { window.clearTimeout(undo.timer); await deleteOccurrence(undo.id); setUndo(null); mutate() }}>{t('undo')}</button></div>}
+      {(update.available || update.error) && !updateDismissed && <Notice
+        className="update-banner"
+        message={updateMessage}
+        detail={update.error}
+        showDetailsLabel={t('showDetails')}
+        hideDetailsLabel={t('hideDetails')}
+        copyDetailsLabel={t('copyDetails')}
+        copiedLabel={t('copied')}
+        copyFailedLabel={t('copyFailed')}
+        dismissLabel={update.error ? t('dismiss') : t('later')}
+        onDismiss={() => setUpdateDismissed(true)}
+      >
+        {update.available && <button className="primary" disabled={update.applying} onClick={() => void activatePwaUpdate()}>{update.applying ? t('updating') : t('updateNow')}</button>}
+      </Notice>}
+      {undoError && <Notice
+        className="toast error-toast"
+        message={t('undoFailed')}
+        detail={undoError}
+        showDetailsLabel={t('showDetails')}
+        hideDetailsLabel={t('hideDetails')}
+        copyDetailsLabel={t('copyDetails')}
+        copiedLabel={t('copied')}
+        copyFailedLabel={t('copyFailed')}
+        dismissLabel={t('dismiss')}
+        onDismiss={() => setUndoError('')}
+      />}
+      {syncNotice && <div className={`toast sync-toast ${undoId ? 'stacked' : ''}`}>{syncNotice}</div>}
+      {undoId && <div className="toast"><span className="notice-message">{t('marked')}</span><button onClick={undoLatest}>{t('undo')}</button></div>}
     </div>
   )
 }
 
-export function SyncBadge({ status, error, t }: { status: SyncPresentation; error: string; t: ReturnType<typeof translator> }) {
+export function SyncBadge({ status, t }: { status: SyncPresentation; t: ReturnType<typeof translator> }) {
   const icon: MaterialIconName = status === 'deviceOnly' ? 'hardDrive' : status === 'offline' ? 'wifiOff' : 'wifi'
-  return <span className={`sync-badge ${status}`} title={error}><MaterialIcon name={icon} size={14} />{syncStatusLabel(status, t)}</span>
+  return <span className={`sync-badge ${status}`} title={status === 'error' ? syncStatusLabel(status, t) : undefined}><MaterialIcon name={icon} size={14} />{syncStatusLabel(status, t)}</span>
 }
 
 export function ConnectedAccountSummary({

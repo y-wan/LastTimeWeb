@@ -2,8 +2,11 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ClearDataDialog, ConfirmationDialog } from '../App'
 import { translator } from '../i18n'
+import { Notice } from '../notifications'
 
-afterEach(() => cleanup())
+afterEach(() => {
+  cleanup()
+})
 
 describe('localized confirmation dialogs', () => {
   it.each([
@@ -21,6 +24,54 @@ describe('localized confirmation dialogs', () => {
     expect(onConfirm).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: destructive }))
     expect(onConfirm).toHaveBeenCalledOnce()
+  })
+
+  describe('technical error disclosure', () => {
+    it('keeps details collapsed while dismiss remains available', () => {
+      const dismiss = vi.fn()
+      render(<Notice
+        message="Update failed. Try again."
+        detail="TechnicalFailureCodeWithoutBreaks"
+        showDetailsLabel="Show details"
+        hideDetailsLabel="Hide details"
+        copyDetailsLabel="Copy details"
+        copiedLabel="Copied"
+        dismissLabel="Dismiss"
+        onDismiss={dismiss}
+      />)
+
+      expect(screen.getByRole('alert')).not.toBeNull()
+      expect(screen.queryByText('TechnicalFailureCodeWithoutBreaks')).toBeNull()
+      fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+      expect(dismiss).toHaveBeenCalledOnce()
+    })
+
+    it('expands, copies, reports success, and collapses technical details', async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined)
+      Object.assign(navigator, { clipboard: { writeText } })
+      const detail = 'TechnicalFailureCodeWithoutBreaks'
+      render(<Notice
+        message="Update failed. Try again."
+        detail={detail}
+        showDetailsLabel="Show details"
+        hideDetailsLabel="Hide details"
+        copyDetailsLabel="Copy details"
+        copiedLabel="Copied"
+      />)
+
+      const toggle = screen.getByRole('button', { name: 'Show details' })
+      expect(toggle.getAttribute('aria-expanded')).toBe('false')
+      fireEvent.click(toggle)
+      expect(screen.getByText(detail)).not.toBeNull()
+      expect(screen.getByRole('button', { name: 'Hide details' }).getAttribute('aria-expanded')).toBe('true')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Copy details' }))
+      expect(writeText).toHaveBeenCalledWith(detail)
+      expect(await screen.findByRole('button', { name: 'Copied' })).not.toBeNull()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Hide details' }))
+      expect(screen.queryByText(detail)).toBeNull()
+    })
   })
 
   it('requires both clear-data stages and exact confirmation text', () => {

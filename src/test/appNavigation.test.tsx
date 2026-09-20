@@ -1,7 +1,9 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../App'
 import { db } from '../db'
+import { withDataOperationLock } from '../operationLock'
+import { startUndoWindow } from '../undoWindow'
 
 beforeEach(async () => {
   Object.defineProperty(window, 'matchMedia', {
@@ -35,7 +37,10 @@ beforeEach(async () => {
   })
 })
 
-afterEach(() => cleanup())
+afterEach(() => {
+  vi.useRealTimers()
+  cleanup()
+})
 
 describe('full-screen navigation', () => {
   it('opens detail as an opaque routed screen and browser back returns home', async () => {
@@ -49,6 +54,43 @@ describe('full-screen navigation', () => {
     window.dispatchEvent(new PopStateEvent('popstate'))
     await waitFor(() => expect(document.querySelector('.screen-overlay')).toBeNull())
     expect(screen.getByRole('navigation')).not.toBeNull()
+  })
+
+  describe('mark undo window', () => {
+    it('dismisses immediately even while the tombstone waits for the data lock', async () => {
+      render(<App />)
+      fireEvent.click(await screen.findByLabelText('Record Fixture event'))
+      expect(await screen.findByText('Recorded as done')).not.toBeNull()
+
+      let releaseLock = () => {}
+      const heldLock = withDataOperationLock(() => new Promise<void>((resolve) => {
+        releaseLock = resolve
+      }))
+      await act(async () => Promise.resolve())
+
+      fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+      expect(screen.queryByText('Recorded as done')).toBeNull()
+
+      const pending = (await db.occurrences.toArray()).find((item) => item.id !== 'occurrence-1')
+      expect(pending?.deletedAt).toBeUndefined()
+
+      releaseLock()
+      await heldLock
+      await waitFor(async () => {
+        expect((await db.occurrences.get(pending!.id))?.deletedAt).toBeTruthy()
+      })
+    })
+
+    it('expires only after the full ten-second window', () => {
+      vi.useFakeTimers()
+      const expire = vi.fn()
+      startUndoWindow(expire)
+
+      act(() => vi.advanceTimersByTime(9_999))
+      expect(expire).not.toHaveBeenCalled()
+      act(() => vi.advanceTimersByTime(1))
+      expect(expire).toHaveBeenCalledOnce()
+    })
   })
 
   it('opens the event editor full-screen and honors browser back', async () => {

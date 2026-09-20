@@ -13,7 +13,7 @@ describe('sync status rendering', () => {
       it(`renders ${status} exactly once in ${locale}`, () => {
         const t = translator(locale)
         render(<>
-          <SyncBadge status={status} error="" t={t} />
+          <SyncBadge status={status} t={t} />
           <ConnectedAccountSummary
             identity={{ primary: 'Example account', secondary: '' }}
             lastSuccessfulSyncAt={status === 'synced' ? '2026-09-19T08:00:00.000Z' : undefined}
@@ -30,7 +30,7 @@ describe('sync status rendering', () => {
   it('does not repeat the unsynced label as a last-sync value', () => {
     const t = translator('zh-CN')
     render(<>
-      <SyncBadge status="notSynced" error="" t={t} />
+      <SyncBadge status="notSynced" t={t} />
       <ConnectedAccountSummary
         identity={{ primary: 'Example account', secondary: '' }}
         locale="zh-CN"

@@ -18,7 +18,7 @@ export class UpdateStore {
   }
 
   setAvailable() {
-    this.publish({ available: true, applying: false })
+    this.publish({ available: true, applying: false, error: undefined, errorKind: undefined })
   }
 
   setApplying() {

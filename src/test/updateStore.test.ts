@@ -10,6 +10,8 @@ describe('PWA update prompt state', () => {
     store.setAvailable()
     store.setApplying()
     store.setError('activation failed', 'timeout')
+    store.setAvailable()
+    store.setError('activation failed again')
     store.setApplying()
     unsubscribe()
 
@@ -18,6 +20,8 @@ describe('PWA update prompt state', () => {
       { available: true, applying: false },
       { available: true, applying: true, error: undefined, errorKind: undefined },
       { available: true, applying: false, error: 'activation failed', errorKind: 'timeout' },
+      { available: true, applying: false, error: undefined, errorKind: undefined },
+      { available: true, applying: false, error: 'activation failed again', errorKind: 'failed' },
       { available: true, applying: true, error: undefined, errorKind: undefined }
     ])
   })
