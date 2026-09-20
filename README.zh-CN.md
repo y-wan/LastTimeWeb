@@ -5,14 +5,14 @@
 </p>
 
 <p align="center">
-  <a href="https://lasttimeweb.feliciameow.workers.dev/"><img alt="在线 PWA" src="https://img.shields.io/badge/Live_PWA-Open-D65A3A?style=flat-square" /></a>
+  <a href="https://lasttime.feliciameow.com/"><img alt="在线 PWA" src="https://img.shields.io/badge/Live_PWA-Open-D65A3A?style=flat-square" /></a>
   <img alt="React 与 TypeScript" src="https://img.shields.io/badge/React_+_TypeScript-3F6FD4?style=flat-square&logo=react&logoColor=white" />
   <a href="LICENSE"><img alt="MIT 许可证" src="https://img.shields.io/badge/License-MIT-0F8C80?style=flat-square" /></a>
 </p>
 
 Last Time 是一款离线优先、可安装的 PWA，用来记住某件事上次发生的时间，而不是把日常生活变成待办清单。历史记录保存在本机，也可以通过 OneDrive 应用文件夹在设备间同步。
 
-<p align="center"><strong><a href="https://lasttimeweb.feliciameow.workers.dev/">打开 Last Time</a></strong></p>
+<p align="center"><strong><a href="https://lasttime.feliciameow.com/">打开 Last Time</a></strong></p>
 
 ## 为什么选择 Last Time？
 
@@ -48,7 +48,7 @@ Last Time 是一款离线优先、可安装的 PWA，用来记住某件事上次
 
 ## 使用应用
 
-在线 PWA 地址：**[https://lasttimeweb.feliciameow.workers.dev/](https://lasttimeweb.feliciameow.workers.dev/)**。
+在线 PWA 地址：**[https://lasttime.feliciameow.com/](https://lasttime.feliciameow.com/)**。
 
 ### 在 iPhone 或 iPad 上安装
 
@@ -129,7 +129,8 @@ npm run lighthouse
 1. 注册应用，并将支持的帐户类型设为**任何组织目录中的帐户和个人 Microsoft 帐户**（`AzureADandPersonalMicrosoftAccount`）。
 2. 在**身份验证**中添加一个**单页应用程序**重定向 URI，必须与实际部署地址完全一致并包含末尾斜杠：
    - 本地 Vite：`http://localhost:5173/`
-   - Cloudflare Workers：部署后显示的根地址 `https://lasttimeweb.<account-subdomain>.workers.dev/`（包含末尾斜杠），或自定义域名的准确根地址
+   - 正式环境：`https://lasttime.feliciameow.com/`
+   - Cloudflare 回滚：部署后显示的根地址 `https://lasttimeweb.<account-subdomain>.workers.dev/`（包含末尾斜杠）
 3. 在 **API 权限**中添加 Microsoft Graph 委托权限 `Files.ReadWrite.AppFolder`。个人使用通常不需要管理员同意。
 4. 将“应用程序（客户端）ID”复制到 `.env.local`：
 
@@ -139,7 +140,7 @@ VITE_MS_CLIENT_ID=00000000-0000-0000-0000-000000000000
 
 应用将 MSAL Browser 固定到 `https://login.microsoftonline.com/common`，与“组织帐户和个人 Microsoft 帐户”受众一致。应用只请求委托权限 `Files.ReadWrite.AppFolder`，并通过 Graph `/me/drive/special/approot` 读写 `last-time-data.json`。组织租户可能会根据租户策略要求用户或管理员同意；不要添加范围更大的 Graph 权限。同步会在启动、回到前台、本地数据变化、手动请求以及网络恢复时运行，错误会明确显示在界面中。
 
-MSAL 始终使用部署源站的根地址作为重定向 URI。例如，部署地址为 `https://lasttimeweb.example.workers.dev` 时，必须在 Entra 中准确注册 `https://lasttimeweb.example.workers.dev/` 作为 SPA 重定向 URI；不要注册子路由，也不要省略末尾斜杠。
+MSAL 始终使用部署源站的根地址作为重定向 URI。正式环境必须准确注册 `https://lasttime.feliciameow.com/`；不要注册子路由，也不要省略末尾斜杠。
 
 身份验证说明：
 
@@ -149,23 +150,15 @@ MSAL 始终使用部署源站的根地址作为重定向 URI。例如，部署�
 
 ## 部署
 
-仓库已配置为使用 Cloudflare Workers Static Assets。`wrangler.jsonc` 仅发布 `dist/`，并使用 `single-page-application` 未找到处理，因此客户端路由会回退到 `index.html`。项目没有 Worker 服务端脚本，静态资源请求保持免费套餐下的纯静态行为。
+正式环境使用 Azure Static Web Apps Free，地址为 **[https://lasttime.feliciameow.com/](https://lasttime.feliciameow.com/)**。只能手动触发的 **Azure Static Web Apps test deploy** 工作流会构建选定的 `main` commit、部署 `dist/`，并针对输入的 HTTPS 地址运行 production smoke。工作流保持仓库“仅允许 GitHub 官方 Action”的策略：GitHub 官方 Action 均固定完整 commit SHA，部署使用固定版本 `2.0.10` 的 Microsoft `@azure/static-web-apps-cli`。
 
-在 Cloudflare 项目 `lasttimeweb` 的 **Workers Builds** 设置中使用：
+Azure deployment token 仅保存在 GitHub 仓库 Secret `AZURE_STATIC_WEB_APPS_API_TOKEN`。公开的 Entra 应用程序 ID 保存在仓库 Variable `AZURE_SWA_TEST_MS_CLIENT_ID`。deployment token 绝不能写入仓库 Variable、文件、工作流输入或日志。
 
-```text
-Build command: npm run build
-Deploy command: npx wrangler deploy
-```
+`public/staticwebapp.config.json` 提供 SPA fallback 与缓存策略：HTML、manifest 和 Service Worker 每次加载或更新检查时都重新验证；带指纹的 bundle 和带版本号的 touch icon 使用长期 immutable 缓存。`lasttime.feliciameow.com` 的 CNAME 保持 DNS-only，应用流量直接进入 Azure。
 
-本地命令行部署：
+### Cloudflare 回滚
 
-```powershell
-npm run build
-npx wrangler deploy
-```
-
-不要把 `VITE_MS_CLIENT_ID` 写入 `wrangler.jsonc`。请将它配置为 Cloudflare 构建变量，由 Vite 在构建时嵌入这个公开的应用程序 ID。首次部署后，请先把准确的 HTTPS 部署地址添加为 Microsoft Entra SPA 重定向 URI，再启用 OneDrive。
+此前的 Cloudflare Workers Static Assets 部署暂时保留为回滚目标。`wrangler.jsonc` 仍只发布 `dist/`，并使用 `single-page-application` 未找到处理。不要再把 Workers 地址作为正式应用入口；在 Azure 正式路径完成观察期前，不要删除该项目。
 
 ### Azure Static Web Apps 测试部署
 

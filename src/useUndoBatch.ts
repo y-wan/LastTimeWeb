@@ -13,7 +13,7 @@ export interface UndoFailure {
 
 export function useUndoBatch(
   deleteOccurrence: (occurrenceId: string) => Promise<void>,
-  onFinalize: () => void
+  onMutation: () => void
 ) {
   const [batch, setBatch] = useState<UndoBatch>()
   const [failures, setFailures] = useState<UndoFailure[]>([])
@@ -22,9 +22,9 @@ export function useUndoBatch(
   const timerRef = useRef<number | undefined>(undefined)
   const generationRef = useRef(0)
   const deleteOccurrenceRef = useRef(deleteOccurrence)
-  const onFinalizeRef = useRef(onFinalize)
+  const onMutationRef = useRef(onMutation)
   deleteOccurrenceRef.current = deleteOccurrence
-  onFinalizeRef.current = onFinalize
+  onMutationRef.current = onMutation
 
   const clearOwnedBatch = useCallback((generation: number) => {
     if (activeRef.current?.generation !== generation) return false
@@ -45,9 +45,9 @@ export function useUndoBatch(
     activeRef.current = next
     setBatch(next)
     timerRef.current = startUndoWindow(() => {
-      if (!clearOwnedBatch(generation)) return
-      onFinalizeRef.current()
+      clearOwnedBatch(generation)
     })
+    onMutationRef.current()
   }, [clearOwnedBatch])
 
   const deleteBatch = useCallback(async (captured: UndoBatch) => {
@@ -68,7 +68,7 @@ export function useUndoBatch(
       ...current.filter((failure) => !capturedIds.has(failure.occurrenceId)),
       ...nextFailures
     ])
-    onFinalizeRef.current()
+    onMutationRef.current()
   }, [])
 
   const undo = useCallback(() => {
@@ -82,7 +82,7 @@ export function useUndoBatch(
     try {
       await deleteOccurrenceRef.current(occurrenceId)
       setFailures((current) => current.filter((failure) => failure.occurrenceId !== occurrenceId))
-      onFinalizeRef.current()
+      onMutationRef.current()
     } catch (cause) {
       const failure = {
         occurrenceId,

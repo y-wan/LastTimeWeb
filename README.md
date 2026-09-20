@@ -5,14 +5,14 @@ English | [Simplified Chinese](README.zh-CN.md)
 </p>
 
 <p align="center">
-  <a href="https://lasttimeweb.feliciameow.workers.dev/"><img alt="Live PWA" src="https://img.shields.io/badge/Live_PWA-Open-D65A3A?style=flat-square" /></a>
+  <a href="https://lasttime.feliciameow.com/"><img alt="Live PWA" src="https://img.shields.io/badge/Live_PWA-Open-D65A3A?style=flat-square" /></a>
   <img alt="React and TypeScript" src="https://img.shields.io/badge/React_+_TypeScript-3F6FD4?style=flat-square&logo=react&logoColor=white" />
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/License-MIT-0F8C80?style=flat-square" /></a>
 </p>
 
 Last Time is an offline-first, installable PWA for remembering when something last happened—without turning everyday life into a task list. Your history works locally, and optional OneDrive App Folder sync keeps your devices aligned.
 
-<p align="center"><strong><a href="https://lasttimeweb.feliciameow.workers.dev/">Open Last Time</a></strong></p>
+<p align="center"><strong><a href="https://lasttime.feliciameow.com/">Open Last Time</a></strong></p>
 
 ## Why Last Time?
 
@@ -48,7 +48,7 @@ Last Time is an offline-first, installable PWA for remembering when something la
 
 ## Use the app
 
-Open the live PWA at **[https://lasttimeweb.feliciameow.workers.dev/](https://lasttimeweb.feliciameow.workers.dev/)**.
+Open the live PWA at **[https://lasttime.feliciameow.com/](https://lasttime.feliciameow.com/)**.
 
 ### Install on iPhone or iPad
 
@@ -129,7 +129,8 @@ No client secret is used or needed. Create a **Single-page application** registr
 1. Register an app with **Accounts in any organizational directory and personal Microsoft accounts** as the supported account type (`AzureADandPersonalMicrosoftAccount`).
 2. Under **Authentication**, add a **Single-page application** redirect URI matching the exact deployed app URL, including its trailing slash:
    - Local Vite: `http://localhost:5173/`
-   - Cloudflare Workers: the root `https://lasttimeweb.<account-subdomain>.workers.dev/` URL shown after deployment, including the trailing slash, or the exact custom-domain root URL
+   - Production: `https://lasttime.feliciameow.com/`
+   - Cloudflare rollback: the root `https://lasttimeweb.<account-subdomain>.workers.dev/` URL shown after deployment, including the trailing slash
 3. Under **API permissions**, add Microsoft Graph delegated permission `Files.ReadWrite.AppFolder`. Admin consent is normally not required for personal use.
 4. Copy the Application (client) ID into `.env.local`:
 
@@ -139,7 +140,7 @@ VITE_MS_CLIENT_ID=00000000-0000-0000-0000-000000000000
 
 The app pins MSAL Browser to `https://login.microsoftonline.com/common`, matching the organizational-and-personal account audience. It requests only the delegated `Files.ReadWrite.AppFolder` permission and reads/writes `last-time-data.json` under Graph `/me/drive/special/approot`. Organizational tenants may require user or administrator consent according to tenant policy; do not add broader Graph permissions. Sync runs on startup, foreground resume, local changes, manual request, and network restoration. Errors remain visible in the UI.
 
-MSAL always uses the deployment origin root as its redirect URI. For example, a deployment at `https://lasttimeweb.example.workers.dev` must have exactly `https://lasttimeweb.example.workers.dev/` registered as an SPA redirect URI; do not register a route or omit the trailing slash.
+MSAL always uses the deployment origin root as its redirect URI. The production registration must include exactly `https://lasttime.feliciameow.com/`; do not register a route or omit the trailing slash.
 
 Authentication guidance:
 
@@ -149,23 +150,15 @@ Authentication guidance:
 
 ## Deploy
 
-The repository is configured for Cloudflare Workers Static Assets. `wrangler.jsonc` publishes only `dist/` and uses `single-page-application` not-found handling, so client-side routes fall back to `index.html`. There is no Worker server script; static asset requests retain the free-tier asset-only behavior.
+Production is hosted on Azure Static Web Apps Free at **[https://lasttime.feliciameow.com/](https://lasttime.feliciameow.com/)**. The manually triggered **Azure Static Web Apps test deploy** workflow builds the selected `main` commit, deploys `dist/`, and runs the production smoke test against the supplied HTTPS origin. It preserves the repository's official-Actions-only policy: all GitHub-maintained Actions are pinned to full commit SHAs, and deployment uses the fixed Microsoft `@azure/static-web-apps-cli` version `2.0.10`.
 
-In the Cloudflare **Workers Builds** setup for project `lasttimeweb`, use:
+The Azure deployment token is stored only in the GitHub repository secret `AZURE_STATIC_WEB_APPS_API_TOKEN`. The public Entra application ID is stored in the repository variable `AZURE_SWA_TEST_MS_CLIENT_ID`. Never put the deployment token in a repository variable, file, workflow input, or log.
 
-```text
-Build command: npm run build
-Deploy command: npx wrangler deploy
-```
+`public/staticwebapp.config.json` supplies the SPA fallback and cache policy. HTML, manifests, and the service worker revalidate on every load or update check; fingerprinted bundles and the versioned touch icon are immutable. The `lasttime.feliciameow.com` CNAME remains DNS-only so application traffic goes directly to Azure.
 
-For a local command-line deployment:
+### Cloudflare rollback
 
-```powershell
-npm run build
-npx wrangler deploy
-```
-
-Do not put `VITE_MS_CLIENT_ID` in `wrangler.jsonc`. Configure it as a Cloudflare build variable so Vite can embed the public application ID during the build. After the first deployment, add the exact HTTPS deployment URL as an SPA redirect URI in Microsoft Entra before enabling OneDrive.
+The previous Cloudflare Workers Static Assets deployment remains temporarily available as a rollback target. `wrangler.jsonc` publishes only `dist/` and uses `single-page-application` not-found handling. Do not treat the Workers URL as the primary application link, and do not remove the project until the Azure production path has completed its observation period.
 
 ### Azure Static Web Apps test deployment
 
