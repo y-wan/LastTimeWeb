@@ -24,6 +24,11 @@ export interface OccurrenceRecord {
   deletedAt?: string
 }
 
+export interface PendingOccurrenceDeletionRecord {
+  occurrenceId: string
+  requestedAt: string
+}
+
 export interface SyncDocument {
   version: 1
   updatedAt: string

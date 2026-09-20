@@ -1,6 +1,13 @@
 import Dexie, { type EntityTable } from 'dexie'
 import { withDataOperationLock } from './operationLock'
-import type { EventRecord, MicrosoftAuthStateRecord, OccurrenceRecord, SettingsRecord, SyncMetaRecord } from './types'
+import type {
+  EventRecord,
+  MicrosoftAuthStateRecord,
+  OccurrenceRecord,
+  PendingOccurrenceDeletionRecord,
+  SettingsRecord,
+  SyncMetaRecord
+} from './types'
 
 export const db = new Dexie('last-time') as Dexie & {
   events: EntityTable<EventRecord, 'id'>
@@ -8,6 +15,7 @@ export const db = new Dexie('last-time') as Dexie & {
   settings: EntityTable<SettingsRecord, 'key'>
   syncMeta: EntityTable<SyncMetaRecord, 'key'>
   microsoftAuthState: EntityTable<MicrosoftAuthStateRecord, 'key'>
+  pendingOccurrenceDeletions: EntityTable<PendingOccurrenceDeletionRecord, 'occurrenceId'>
 }
 
 db.version(1).stores({
@@ -23,6 +31,15 @@ db.version(2).stores({
   settings: 'key',
   syncMeta: 'key',
   microsoftAuthState: 'key'
+})
+
+db.version(3).stores({
+  events: 'id, updatedAt, deletedAt',
+  occurrences: 'id, eventId, occurredAt, updatedAt, deletedAt',
+  settings: 'key',
+  syncMeta: 'key',
+  microsoftAuthState: 'key',
+  pendingOccurrenceDeletions: 'occurrenceId, requestedAt'
 })
 
 export const nowIso = () => new Date().toISOString()
@@ -91,6 +108,29 @@ export async function deleteOccurrence(id: string) {
   })
 }
 
+export function queueOccurrenceDeletions(occurrenceIds: string[]) {
+  const requestedAt = nowIso()
+  return db.transaction('rw', db.pendingOccurrenceDeletions, () =>
+    db.pendingOccurrenceDeletions.bulkPut(
+      occurrenceIds.map((occurrenceId) => ({ occurrenceId, requestedAt }))
+    )
+  )
+}
+
+export function cancelPendingOccurrenceDeletion(occurrenceId: string) {
+  return db.pendingOccurrenceDeletions.delete(occurrenceId)
+}
+
+export async function applyPendingOccurrenceDeletion(occurrenceId: string) {
+  await withDataOperationLock(async () => {
+    const now = nowIso()
+    await db.transaction('rw', db.occurrences, db.pendingOccurrenceDeletions, async () => {
+      await db.occurrences.update(occurrenceId, { deletedAt: now, updatedAt: now })
+      await db.pendingOccurrenceDeletions.delete(occurrenceId)
+    })
+  })
+}
+
 export async function importRecords(events: EventRecord[], occurrences: OccurrenceRecord[]) {
   await withDataOperationLock(async () => {
     await db.transaction('rw', db.events, db.occurrences, async () => {
@@ -101,13 +141,20 @@ export async function importRecords(events: EventRecord[], occurrences: Occurren
 }
 
 export async function tombstoneAllData(timestamp = nowIso()) {
-  return withDataOperationLock(async () => db.transaction('rw', db.events, db.occurrences, async () => {
-    const events = await db.events.filter((event) => !event.deletedAt).toArray()
-    const occurrences = await db.occurrences.filter((occurrence) => !occurrence.deletedAt).toArray()
-    await Promise.all([
-      ...events.map((event) => db.events.update(event.id, { deletedAt: timestamp, updatedAt: timestamp })),
-      ...occurrences.map((occurrence) => db.occurrences.update(occurrence.id, { deletedAt: timestamp, updatedAt: timestamp }))
-    ])
-    return { events: events.length, occurrences: occurrences.length, timestamp }
-  }))
+  return withDataOperationLock(async () => db.transaction(
+    'rw',
+    db.events,
+    db.occurrences,
+    db.pendingOccurrenceDeletions,
+    async () => {
+      const events = await db.events.filter((event) => !event.deletedAt).toArray()
+      const occurrences = await db.occurrences.filter((occurrence) => !occurrence.deletedAt).toArray()
+      await Promise.all([
+        ...events.map((event) => db.events.update(event.id, { deletedAt: timestamp, updatedAt: timestamp })),
+        ...occurrences.map((occurrence) => db.occurrences.update(occurrence.id, { deletedAt: timestamp, updatedAt: timestamp })),
+        db.pendingOccurrenceDeletions.clear()
+      ])
+      return { events: events.length, occurrences: occurrences.length, timestamp }
+    }
+  ))
 }

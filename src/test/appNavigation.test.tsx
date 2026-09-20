@@ -20,6 +20,7 @@ beforeEach(async () => {
   await db.occurrences.clear()
   await db.settings.clear()
   await db.microsoftAuthState.clear()
+  await db.pendingOccurrenceDeletions.clear()
   await db.events.add({
     id: 'event-1',
     name: 'Fixture event',
@@ -116,16 +117,45 @@ describe('full-screen navigation', () => {
       }))
       await act(async () => Promise.resolve())
 
+      fireEvent.click(screen.getByText('Fixture event'))
+      await waitFor(() => expect(document.querySelectorAll('.occurrence-list article')).toHaveLength(2))
       fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
       expect(screen.queryByText('Recorded as done')).toBeNull()
+      await waitFor(() => expect(document.querySelectorAll('.occurrence-list article')).toHaveLength(1))
 
       const pending = (await db.occurrences.toArray()).find((item) => item.id !== 'occurrence-1')
       expect(pending?.deletedAt).toBeUndefined()
+      expect(await db.pendingOccurrenceDeletions.get(pending!.id)).toBeDefined()
 
       releaseLock()
       await heldLock
       await waitFor(async () => {
         expect((await db.occurrences.get(pending!.id))?.deletedAt).toBeTruthy()
+        expect(await db.pendingOccurrenceDeletions.get(pending!.id)).toBeUndefined()
+      })
+    })
+
+    it('keeps a durable pending undo hidden after restart and resumes it', async () => {
+      await db.pendingOccurrenceDeletions.put({
+        occurrenceId: 'occurrence-1',
+        requestedAt: '2026-09-20T00:00:00.000Z'
+      })
+      let releaseLock = () => {}
+      const heldLock = withDataOperationLock(() => new Promise<void>((resolve) => {
+        releaseLock = resolve
+      }))
+      await act(async () => Promise.resolve())
+
+      render(<App />)
+      fireEvent.click(await screen.findByText('Fixture event'))
+      await waitFor(() => expect(document.querySelectorAll('.occurrence-list article')).toHaveLength(0))
+      expect((await db.occurrences.get('occurrence-1'))?.deletedAt).toBeUndefined()
+
+      releaseLock()
+      await heldLock
+      await waitFor(async () => {
+        expect((await db.occurrences.get('occurrence-1'))?.deletedAt).toBeTruthy()
+        expect(await db.pendingOccurrenceDeletions.get('occurrence-1')).toBeUndefined()
       })
     })
 
@@ -164,7 +194,7 @@ describe('full-screen navigation', () => {
   it('uses explicit custom dialogs for event and history-record deletion', async () => {
     render(<App />)
     fireEvent.click(await screen.findByText('Fixture event'))
-    fireEvent.click(screen.getByLabelText('Delete'))
+    fireEvent.click(await screen.findByLabelText('Delete'))
     expect(screen.getByText('Delete item?')).not.toBeNull()
     expect(screen.getByText('All history for this item will also be deleted. This can’t be undone.')).not.toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Keep item' }))
