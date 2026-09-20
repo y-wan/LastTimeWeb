@@ -150,7 +150,7 @@ Authentication guidance:
 
 ## Deploy
 
-Production is hosted on Azure Static Web Apps Free at **[https://lasttime.feliciameow.com/](https://lasttime.feliciameow.com/)**. The manually triggered **Azure Static Web Apps test deploy** workflow builds the selected `main` commit, deploys `dist/`, and runs the production smoke test against the supplied HTTPS origin. It preserves the repository's official-Actions-only policy: all GitHub-maintained Actions are pinned to full commit SHAs, and deployment uses the fixed Microsoft `@azure/static-web-apps-cli` version `2.0.10`.
+Production is hosted on Azure Static Web Apps Free at **[https://lasttime.feliciameow.com/](https://lasttime.feliciameow.com/)**. The **Azure Static Web Apps deploy** workflow builds every `main` commit, deploys `dist/`, and runs the production smoke test against the official HTTPS origin; it can also be rerun manually. It preserves the repository's official-Actions-only policy: all GitHub-maintained Actions are pinned to full commit SHAs, and deployment uses the fixed Microsoft `@azure/static-web-apps-cli` version `2.0.10`.
 
 The Azure deployment token is stored only in the GitHub repository secret `AZURE_STATIC_WEB_APPS_API_TOKEN`. The public Entra application ID is stored in the repository variable `AZURE_SWA_TEST_MS_CLIENT_ID`. Never put the deployment token in a repository variable, file, workflow input, or log.
 
@@ -159,16 +159,6 @@ The Azure deployment token is stored only in the GitHub repository secret `AZURE
 ### Cloudflare rollback
 
 The previous Cloudflare Workers Static Assets deployment remains temporarily available as a rollback target. `wrangler.jsonc` publishes only `dist/` and uses `single-page-application` not-found handling. Do not treat the Workers URL as the primary application link, and do not remove the project until the Azure production path has completed its observation period.
-
-### Azure Static Web Apps test deployment
-
-The repository also contains an inert, manually triggered **Azure Static Web Apps test deploy** workflow. It preserves the repository's official-Actions-only policy: the workflow uses only SHA-pinned GitHub-maintained Actions and runs the Microsoft-published `@azure/static-web-apps-cli` package at the fixed version `2.0.10` instead of using a third-party deployment Action.
-
-Before the first run, create an Azure Static Web Apps **Free** resource without changing the production hostname, then add its deployment token as the GitHub repository secret `AZURE_STATIC_WEB_APPS_API_TOKEN`. Enter the generated Azure HTTPS origin as the workflow's `site_url` input. The workflow builds the exact selected commit, deploys `dist/`, and runs the existing production smoke test against that origin, including version and commit verification.
-
-OneDrive is disabled in the Azure test build unless the public Entra application ID is configured as the repository variable `AZURE_SWA_TEST_MS_CLIENT_ID`. Before setting that variable or testing OneDrive, add the exact Azure origin root, including the trailing slash, as an Entra SPA redirect URI. Never store the deployment token in a repository variable, file, workflow input, or log.
-
-`public/staticwebapp.config.json` supplies the Azure SPA fallback and cache policy. HTML, manifests, and the service worker revalidate on every load or update check; fingerprinted bundles and the versioned touch icon are immutable. Cloudflare remains unchanged and is the DNS rollback target until the Azure test meets the agreed validation period.
 
 ## Offline use and updates
 

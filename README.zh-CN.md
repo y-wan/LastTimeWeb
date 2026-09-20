@@ -150,7 +150,7 @@ MSAL 始终使用部署源站的根地址作为重定向 URI。正式环境必�
 
 ## 部署
 
-正式环境使用 Azure Static Web Apps Free，地址为 **[https://lasttime.feliciameow.com/](https://lasttime.feliciameow.com/)**。只能手动触发的 **Azure Static Web Apps test deploy** 工作流会构建选定的 `main` commit、部署 `dist/`，并针对输入的 HTTPS 地址运行 production smoke。工作流保持仓库“仅允许 GitHub 官方 Action”的策略：GitHub 官方 Action 均固定完整 commit SHA，部署使用固定版本 `2.0.10` 的 Microsoft `@azure/static-web-apps-cli`。
+正式环境使用 Azure Static Web Apps Free，地址为 **[https://lasttime.feliciameow.com/](https://lasttime.feliciameow.com/)**。**Azure Static Web Apps deploy** 工作流会构建每个 `main` commit、部署 `dist/`，并针对正式 HTTPS 地址运行 production smoke；也可以手动重跑。工作流保持仓库“仅允许 GitHub 官方 Action”的策略：GitHub 官方 Action 均固定完整 commit SHA，部署使用固定版本 `2.0.10` 的 Microsoft `@azure/static-web-apps-cli`。
 
 Azure deployment token 仅保存在 GitHub 仓库 Secret `AZURE_STATIC_WEB_APPS_API_TOKEN`。公开的 Entra 应用程序 ID 保存在仓库 Variable `AZURE_SWA_TEST_MS_CLIENT_ID`。deployment token 绝不能写入仓库 Variable、文件、工作流输入或日志。
 
@@ -159,16 +159,6 @@ Azure deployment token 仅保存在 GitHub 仓库 Secret `AZURE_STATIC_WEB_APPS_
 ### Cloudflare 回滚
 
 此前的 Cloudflare Workers Static Assets 部署暂时保留为回滚目标。`wrangler.jsonc` 仍只发布 `dist/`，并使用 `single-page-application` 未找到处理。不要再把 Workers 地址作为正式应用入口；在 Azure 正式路径完成观察期前，不要删除该项目。
-
-### Azure Static Web Apps 测试部署
-
-仓库还包含一个默认不运行、只能手动触发的 **Azure Static Web Apps test deploy** 工作流。它保持仓库“仅允许 GitHub 官方 Action”的策略：工作流只使用固定完整 SHA 的 GitHub 官方 Action，并通过固定版本 `2.0.10` 的 Microsoft `@azure/static-web-apps-cli` 包部署，不使用第三方部署 Action。
-
-首次运行前，需要先创建 Azure Static Web Apps **Free** 资源，并且不要修改正式 hostname；然后把 deployment token 保存为 GitHub 仓库 Secret `AZURE_STATIC_WEB_APPS_API_TOKEN`。触发工作流时，将 Azure 自动生成的 HTTPS 源站地址填入 `site_url`。工作流会构建所选 commit、部署 `dist/`，并复用现有 production smoke，核对线上版本和 commit SHA。
-
-Azure 测试构建默认不启用 OneDrive。只有在把公开的 Entra 应用程序 ID 配置为仓库 Variable `AZURE_SWA_TEST_MS_CLIENT_ID` 后才会启用。设置该 Variable 或测试 OneDrive 前，必须先把准确的 Azure 源站根地址（包含末尾斜杠）添加为 Entra SPA redirect URI。deployment token 绝不能写入仓库 Variable、文件、工作流输入或日志。
-
-`public/staticwebapp.config.json` 提供 Azure 的 SPA fallback 与缓存策略：HTML、manifest 和 Service Worker 每次加载或更新检查时都重新验证；带指纹的 bundle 和带版本号的 touch icon 使用长期 immutable 缓存。在 Azure 测试达到约定验证周期前，Cloudflare 保持不变并继续作为 DNS 回滚目标。
 
 ## 离线使用与更新
 
