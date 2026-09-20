@@ -528,7 +528,7 @@ export default function App() {
     <div className="app-shell">
       {!overlayOpen && <header>
         <div><h1>{t('appName')}</h1><p>{t('subtitle')}</p></div>
-        <div className="sync-control">
+        <div className="sync-control" data-status={syncStatus}>
           <SyncBadge status={syncStatus} t={t} />
           {syncStatus === 'deviceOnly' && isSyncConfigured() && <button className="sync-cta" disabled={auth.offline} onClick={() => void connectMicrosoft()}>
             {auth.status === 'reconnect-required' ? t('reconnectMicrosoft') : t('signIn')}
