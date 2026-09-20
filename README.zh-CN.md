@@ -167,6 +167,16 @@ npx wrangler deploy
 
 不要把 `VITE_MS_CLIENT_ID` 写入 `wrangler.jsonc`。请将它配置为 Cloudflare 构建变量，由 Vite 在构建时嵌入这个公开的应用程序 ID。首次部署后，请先把准确的 HTTPS 部署地址添加为 Microsoft Entra SPA 重定向 URI，再启用 OneDrive。
 
+### Azure Static Web Apps 测试部署
+
+仓库还包含一个默认不运行、只能手动触发的 **Azure Static Web Apps test deploy** 工作流。它保持仓库“仅允许 GitHub 官方 Action”的策略：工作流只使用固定完整 SHA 的 GitHub 官方 Action，并通过固定版本 `2.0.10` 的 Microsoft `@azure/static-web-apps-cli` 包部署，不使用第三方部署 Action。
+
+首次运行前，需要先创建 Azure Static Web Apps **Free** 资源，并且不要修改正式 hostname；然后把 deployment token 保存为 GitHub 仓库 Secret `AZURE_STATIC_WEB_APPS_API_TOKEN`。触发工作流时，将 Azure 自动生成的 HTTPS 源站地址填入 `site_url`。工作流会构建所选 commit、部署 `dist/`，并复用现有 production smoke，核对线上版本和 commit SHA。
+
+Azure 测试构建默认不启用 OneDrive。只有在把公开的 Entra 应用程序 ID 配置为仓库 Variable `AZURE_SWA_TEST_MS_CLIENT_ID` 后才会启用。设置该 Variable 或测试 OneDrive 前，必须先把准确的 Azure 源站根地址（包含末尾斜杠）添加为 Entra SPA redirect URI。deployment token 绝不能写入仓库 Variable、文件、工作流输入或日志。
+
+`public/staticwebapp.config.json` 提供 Azure 的 SPA fallback 与缓存策略：HTML、manifest 和 Service Worker 每次加载或更新检查时都重新验证；带指纹的 bundle 和带版本号的 touch icon 使用长期 immutable 缓存。在 Azure 测试达到约定验证周期前，Cloudflare 保持不变并继续作为 DNS 回滚目标。
+
 ## 离线使用与更新
 
 桌面端可使用浏览器地址栏中的安装图标。移动端安装步骤与小米/HyperOS 排障说明见[使用应用](#使用应用)。

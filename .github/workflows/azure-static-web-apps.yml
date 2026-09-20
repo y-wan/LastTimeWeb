@@ -1,0 +1,51 @@
+name: Azure Static Web Apps test deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      site_url:
+        description: Azure Static Web Apps test origin, without a trailing slash
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: azure-static-web-apps-test
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build, deploy, and verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Build the static application
+        env:
+          VITE_MS_CLIENT_ID: ${{ vars.AZURE_SWA_TEST_MS_CLIENT_ID }}
+        run: npm run build
+      - name: Require the Azure deployment token
+        env:
+          SWA_CLI_DEPLOYMENT_TOKEN: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+        run: test -n "$SWA_CLI_DEPLOYMENT_TOKEN"
+      - name: Deploy with the pinned Azure CLI package
+        env:
+          SWA_CLI_DEPLOYMENT_TOKEN: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+        run: npx --yes @azure/static-web-apps-cli@2.0.10 deploy ./dist --env production
+      - run: npx playwright install --with-deps chromium
+      - name: Verify the deployed version and commit
+        env:
+          SITE_URL: ${{ inputs.site_url }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: node scripts/production-smoke.mjs --url="$SITE_URL" --version="$(node -p "require('./package.json').version")" --sha="$EXPECTED_SHA"

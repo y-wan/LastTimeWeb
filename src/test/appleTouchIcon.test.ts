@@ -3,9 +3,9 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 describe('Apple touch icon', () => {
-  it('is parser-visible at an absolute versioned URL before runtime metadata', () => {
+  it('is parser-visible at a host-portable versioned URL before runtime metadata', () => {
     const html = readFileSync(join(process.cwd(), 'index.html'), 'utf8')
-    const iconLink = '<link rel="apple-touch-icon" sizes="180x180" href="https://lasttimeweb.feliciameow.workers.dev/apple-touch-icon-20260919.png" />'
+    const iconLink = '<link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon-20260919.png" />'
     expect(html).toContain(iconLink)
     expect(html.indexOf(iconLink)).toBeLessThan(html.indexOf("const localeKey = 'last-time-app-locale'"))
     expect(html.indexOf(iconLink)).toBeLessThan(html.indexOf('<script type="module"'))
