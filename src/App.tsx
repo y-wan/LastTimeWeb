@@ -1,6 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { addOccurrence, createEvent, db, deleteEvent, deleteOccurrence, importRecords, tombstoneAllData, updateEvent, updateOccurrence } from './db'
+import {
+  addOccurrence,
+  applyPendingOccurrenceDeletion,
+  cancelPendingOccurrenceDeletion,
+  createEvent,
+  db,
+  deleteEvent,
+  deleteOccurrence,
+  importRecords,
+  queueOccurrenceDeletions,
+  tombstoneAllData,
+  updateEvent,
+  updateOccurrence
+} from './db'
 import { exportCsv, importCsv } from './csv'
 import { averageInterval, formatDuration, formatElapsed, formatInterval, formatSyncDateTime, formatSyncTime, historyGroup, toLocalInputValue } from './date'
 import { applyLocalizedAppMetadata, initialAppLocale } from './appMetadata'
@@ -280,8 +293,28 @@ export function EventDetail({ event, occurrences, locale, surfaceColor, t, onClo
 }
 
 export default function App() {
-  const events = useLiveQuery(() => db.events.filter((event) => !event.deletedAt).toArray(), []) ?? EMPTY_EVENTS
-  const occurrences = useLiveQuery(() => db.occurrences.filter((item) => !item.deletedAt).toArray(), []) ?? EMPTY_OCCURRENCES
+  const dataState = useLiveQuery(async () => db.transaction(
+    'r',
+    db.events,
+    db.occurrences,
+    db.pendingOccurrenceDeletions,
+    async () => {
+      const [events, occurrences, pendingDeletions] = await Promise.all([
+        db.events.filter((event) => !event.deletedAt).toArray(),
+        db.occurrences.filter((item) => !item.deletedAt).toArray(),
+        db.pendingOccurrenceDeletions.toArray()
+      ])
+      const pendingDeletionIds = pendingDeletions.map((item) => item.occurrenceId)
+      const hidden = new Set(pendingDeletionIds)
+      return {
+        events,
+        occurrences: occurrences.filter((item) => !hidden.has(item.id)),
+        pendingDeletionIds
+      }
+    }
+  ), [])
+  const events = dataState?.events ?? EMPTY_EVENTS
+  const occurrences = dataState?.occurrences ?? EMPTY_OCCURRENCES
   const settings = useLiveQuery(() => db.settings.get('settings'), [])
   const [locale, setLocale] = useState<Locale>(() => initialAppLocale(navigator.language))
   const [theme, setTheme] = useState<ThemeMode>('system')
@@ -321,7 +354,16 @@ export default function App() {
   const sync = useSync(accountId)
   const scheduleSync = sync.schedule
   const mutate = useCallback(() => scheduleSync(), [scheduleSync])
-  const undo = useUndoBatch(deleteOccurrence, mutate)
+  const undo = useUndoBatch(applyPendingOccurrenceDeletion, mutate, {
+    pendingDeletionIds: dataState?.pendingDeletionIds,
+    enqueue: queueOccurrenceDeletions,
+    cancel: cancelPendingOccurrenceDeletion
+  })
+  const visibleOccurrences = useMemo(() => {
+    if (!undo.pendingDeletionIds.length) return occurrences
+    const hidden = new Set(undo.pendingDeletionIds)
+    return occurrences.filter((occurrence) => !hidden.has(occurrence.id))
+  }, [occurrences, undo.pendingDeletionIds])
   const syncStatus = syncPresentation({
     authReady: auth.ready,
     accountId,
@@ -408,12 +450,12 @@ export default function App() {
   }, [settingsError])
   const latestByEvent = useMemo(() => {
     const map = new Map<string, OccurrenceRecord>()
-    for (const item of occurrences) {
+    for (const item of visibleOccurrences) {
       const previous = map.get(item.eventId)
       if (!previous || item.occurredAt > previous.occurredAt) map.set(item.eventId, item)
     }
     return map
-  }, [occurrences])
+  }, [visibleOccurrences])
   const filtered = events.filter((event) => `${event.name} ${event.note}`.toLowerCase().includes(query.toLowerCase()))
   const sorted = [...filtered].sort((a, b) => (latestByEvent.get(b.id)?.occurredAt ?? '').localeCompare(latestByEvent.get(a.id)?.occurredAt ?? ''))
   const detailEvent = events.find((event) => event.id === detailId)
@@ -667,7 +709,7 @@ export default function App() {
         else await updateEvent(editingEvent.id, draft)
         mutate(); closeOverlay()
       }} />}
-      {detailEvent && <EventDetail event={detailEvent} occurrences={occurrences} locale={locale} surfaceColor={surfaceColor} t={t} onClose={closeOverlay} onMutate={mutate} onOccurrenceAdded={undo.add} onMarkNow={markNow} onEditEvent={() => { setDetailId(null); setEditingEvent(detailEvent) }} onRequestDeleteEvent={() => setConfirmation({ kind: 'deleteEvent', eventId: detailEvent.id })} onRequestDeleteOccurrence={(occurrenceId) => setConfirmation({ kind: 'deleteOccurrence', occurrenceId })} />}
+      {detailEvent && <EventDetail event={detailEvent} occurrences={visibleOccurrences} locale={locale} surfaceColor={surfaceColor} t={t} onClose={closeOverlay} onMutate={mutate} onOccurrenceAdded={undo.add} onMarkNow={markNow} onEditEvent={() => { setDetailId(null); setEditingEvent(detailEvent) }} onRequestDeleteEvent={() => setConfirmation({ kind: 'deleteEvent', eventId: detailEvent.id })} onRequestDeleteOccurrence={(occurrenceId) => setConfirmation({ kind: 'deleteOccurrence', occurrenceId })} />}
       {clearStage && <ClearDataDialog stage={clearStage} clearing={clearingData} t={t} onStage={setClearStage} onCancel={() => { if (!clearingData) setClearStage(null) }} onConfirm={confirmClearAllData} />}
       {confirmation && <ConfirmationDialog
         title={t(confirmation.kind === 'discard' ? 'discardTitle' : confirmation.kind === 'deleteEvent' ? 'deleteEventTitle' : 'deleteRecordTitle')}
@@ -704,7 +746,7 @@ export default function App() {
       </Notice>}
       {undoFailure && <Notice
         className="toast error-toast"
-        message={t('undoFailed')}
+        message={t(undoFailure.restored ? 'undoFailed' : 'undoPending')}
         detail={undoFailure.detail}
         showDetailsLabel={t('showDetails')}
         hideDetailsLabel={t('hideDetails')}

@@ -8,6 +8,7 @@ beforeEach(async () => {
   await db.settings.clear()
   await db.syncMeta.clear()
   await db.microsoftAuthState.clear()
+  await db.pendingOccurrenceDeletions.clear()
 })
 
 describe('clear all data workflow', () => {
@@ -57,6 +58,10 @@ describe('clear all data workflow', () => {
     await db.settings.put({ key: 'settings', locale: 'zh-CN', theme: 'dark', colorTheme: 'sage' })
     await db.syncMeta.put({ key: 'sync:account', accountId: 'account', lastSyncedAt: '2026-01-04T00:00:00.000Z' })
     await db.microsoftAuthState.put({ key: 'microsoft', connectedBefore: true, loginHint: 'person@example.com' })
+    await db.pendingOccurrenceDeletions.put({
+      occurrenceId: 'occ-active',
+      requestedAt: '2026-09-19T05:00:00.000Z'
+    })
 
     const timestamp = '2026-09-19T06:00:00.000Z'
     expect(await tombstoneAllData(timestamp)).toEqual({ events: 1, occurrences: 1, timestamp })
@@ -69,6 +74,7 @@ describe('clear all data workflow', () => {
       connectedBefore: true,
       loginHint: 'person@example.com'
     })
+    expect(await db.pendingOccurrenceDeletions.count()).toBe(0)
     expect(await tombstoneAllData('2026-09-20T00:00:00.000Z')).toMatchObject({ events: 0, occurrences: 0 })
   })
 })

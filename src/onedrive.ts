@@ -187,12 +187,33 @@ async function token(account: AccountInfo) {
 }
 
 export async function localDocument(): Promise<SyncDocument> {
-  return {
-    version: 1,
-    updatedAt: nowIso(),
-    events: await db.events.toArray(),
-    occurrences: await db.occurrences.toArray()
-  }
+  return db.transaction(
+    'r',
+    db.events,
+    db.occurrences,
+    db.pendingOccurrenceDeletions,
+    async () => {
+      const [events, occurrences, pendingDeletions] = await Promise.all([
+        db.events.toArray(),
+        db.occurrences.toArray(),
+        db.pendingOccurrenceDeletions.toArray()
+      ])
+      const pendingById = new Map(
+        pendingDeletions.map((item) => [item.occurrenceId, item.requestedAt])
+      )
+      return {
+        version: 1,
+        updatedAt: nowIso(),
+        events,
+        occurrences: occurrences.map((occurrence) => {
+          const requestedAt = pendingById.get(occurrence.id)
+          return requestedAt
+            ? { ...occurrence, deletedAt: requestedAt, updatedAt: requestedAt }
+            : occurrence
+        })
+      }
+    }
+  )
 }
 
 interface DriveItemMetadata {

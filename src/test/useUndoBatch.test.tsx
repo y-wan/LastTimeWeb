@@ -39,13 +39,14 @@ describe('rolling undo batches', () => {
     expect(onMutation).toHaveBeenCalledTimes(2)
   })
 
-  it('hides synchronously, waits for every deletion, and syncs the compensating change once', async () => {
+  it('persists before hiding, waits for every deletion, and syncs the compensating change once', async () => {
     const held = deferred()
     const deleteOccurrence = vi.fn()
       .mockImplementationOnce(() => held.promise)
       .mockResolvedValueOnce(undefined)
     const onMutation = vi.fn()
-    const { result } = renderHook(() => useUndoBatch(deleteOccurrence, onMutation))
+    const enqueue = vi.fn().mockResolvedValue(undefined)
+    const { result } = renderHook(() => useUndoBatch(deleteOccurrence, onMutation, { enqueue }))
 
     act(() => {
       result.current.add('occurrence-a')
@@ -56,28 +57,54 @@ describe('rolling undo batches', () => {
 
     act(() => result.current.undo())
     expect(result.current.batch).toBeUndefined()
+    expect(enqueue).toHaveBeenCalledWith(['occurrence-a', 'occurrence-b'])
+    await waitFor(() => expect(result.current.pendingDeletionIds).toEqual(['occurrence-a', 'occurrence-b']))
     expect(deleteOccurrence).toHaveBeenCalledTimes(2)
     expect(onMutation).not.toHaveBeenCalled()
 
     await act(async () => held.resolve())
     await waitFor(() => expect(onMutation).toHaveBeenCalledOnce())
+    expect(result.current.pendingDeletionIds).toEqual([])
   })
 
-  it('retains only failed occurrence IDs and keeps successful deletions complete', async () => {
+  it('restores failed occurrence IDs after optimistic hiding and keeps successful deletions complete', async () => {
     const deleteOccurrence = vi.fn(async (occurrenceId: string) => {
       if (occurrenceId === 'occurrence-b') throw new Error('database unavailable')
     })
     const onMutation = vi.fn()
-    const { result } = renderHook(() => useUndoBatch(deleteOccurrence, onMutation))
+    const cancel = vi.fn().mockResolvedValue(undefined)
+    const { result } = renderHook(() => useUndoBatch(deleteOccurrence, onMutation, {
+      enqueue: vi.fn().mockResolvedValue(undefined),
+      cancel
+    }))
 
     act(() => result.current.add('occurrence-a'))
     act(() => result.current.add('occurrence-b'))
     onMutation.mockClear()
     act(() => result.current.undo())
+    await waitFor(() => expect(deleteOccurrence).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(result.current.failures).toEqual([
-      { occurrenceId: 'occurrence-b', detail: 'database unavailable' }
+      { occurrenceId: 'occurrence-b', detail: 'database unavailable', restored: true }
     ]))
+    expect(cancel).toHaveBeenCalledWith('occurrence-b')
+    expect(result.current.pendingDeletionIds).toEqual([])
     expect(onMutation).toHaveBeenCalledOnce()
+  })
+
+  it('resumes persisted undo work after remount', async () => {
+    const held = deferred()
+    const applyDeletion = vi.fn(() => held.promise)
+    const onMutation = vi.fn()
+    const { result } = renderHook(() => useUndoBatch(applyDeletion, onMutation, {
+      pendingDeletionIds: ['occurrence-a'],
+      cancel: vi.fn().mockResolvedValue(undefined)
+    }))
+
+    expect(result.current.pendingDeletionIds).toEqual(['occurrence-a'])
+    await waitFor(() => expect(applyDeletion).toHaveBeenCalledWith('occurrence-a'))
+
+    await act(async () => held.resolve())
+    await waitFor(() => expect(onMutation).toHaveBeenCalledOnce())
   })
 
   it('does not let an older batch completion clear a newer batch', async () => {
@@ -112,7 +139,7 @@ describe('rolling undo batches', () => {
     onMutation.mockClear()
     act(() => result.current.undo())
     await waitFor(() => expect(result.current.failures).toHaveLength(1))
-    expect(onMutation).toHaveBeenCalledOnce()
+    expect(onMutation).not.toHaveBeenCalled()
     onMutation.mockClear()
 
     await act(async () => result.current.retryFailure('occurrence-a'))
