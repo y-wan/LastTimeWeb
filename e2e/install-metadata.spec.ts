@@ -25,7 +25,7 @@ for (const scenario of [
     await expect(page.locator('meta[name="apple-mobile-web-app-title"]')).toHaveAttribute('content', scenario.name)
     await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute(
       'href',
-      'https://lasttimeweb.feliciameow.workers.dev/apple-touch-icon-20260919.png'
+      './apple-touch-icon-20260919.png'
     )
     await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute('sizes', '180x180')
     await expectActiveManifest(page, scenario.manifest, scenario.name)
