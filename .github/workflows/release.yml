@@ -57,9 +57,10 @@ jobs:
       - run: npm run lighthouse
       - name: Verify production target
         env:
+          PRODUCTION_URL: https://lasttime.feliciameow.com
           VERSION: ${{ inputs.version }}
           EXPECTED_SHA: ${{ github.sha }}
-        run: node scripts/production-smoke.mjs --version="$VERSION" --sha="$EXPECTED_SHA"
+        run: node scripts/production-smoke.mjs --url="$PRODUCTION_URL" --version="$VERSION" --sha="$EXPECTED_SHA"
 
   publish:
     name: Publish release
@@ -90,9 +91,31 @@ jobs:
           gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
             -f ref="refs/tags/v$VERSION" \
             -f sha="$tag_sha"
+          generated_notes="$(
+            gh api --method POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+              -f tag_name="v$VERSION" \
+              -f target_commitish="$TARGET_SHA" \
+              --jq .body
+          )"
+          {
+            echo "Official PWA: https://lasttime.feliciameow.com"
+            echo
+            if [[ "$VERSION" = "1.0.3" ]]; then
+              echo "## Highlights"
+              echo
+              echo "- Moves the official application entry point to Azure Static Web Apps."
+              echo "- Starts OneDrive synchronization shortly after recording an occurrence instead of waiting for the undo window."
+              echo "- Keeps undo reliable by synchronizing the compensating deletion when used."
+              echo "- Retains the previous Cloudflare deployment temporarily as a rollback target."
+              echo
+              echo "No local data migration or OneDrive file-format change is required."
+              echo
+            fi
+            printf '%s\n' "$generated_notes"
+          } > release-notes.md
           gh release create "v$VERSION" \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
             --title "Last Time Web v$VERSION" \
-            --generate-notes \
+            --notes-file release-notes.md \
             --latest
