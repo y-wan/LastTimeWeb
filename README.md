@@ -55,9 +55,11 @@ Open the live PWA at **[https://lasttime.feliciameow.com/](https://lasttime.feli
 1. Open the exact live URL in Safari.
 2. Tap **Share**, then **Add to Home Screen**.
 3. Launch Last Time from the installed Home Screen icon.
-4. When the app shows **New version available**, choose **Update now**. The app waits for the new Service Worker to take control before reloading and shows a retryable error instead of hanging if activation times out.
+4. When the app shows **New version available**, choose **Update now**.
 
 On first use, install metadata follows the browser's primary language. After you choose a language in Last Time, that effective app language drives the localized page title and install manifest on the current and future loads. Existing Home Screen icons may wait for the browser's installed-manifest refresh; remove and add the icon again to verify a name change immediately.
+
+The version currently running on the device is shown under **Settings → About & credits**.
 
 ### Install on Android
 
@@ -87,12 +89,12 @@ Sync runs while the app is open: at startup, foreground resume, local changes/im
 
 Export a CSV from [Last Time Tracker for iOS](https://apps.apple.com/app/id534982023), then open **Settings → Data → Import CSV** in this app. In the original legacy format, `Event` identifies the item and a generic `Note` on a row with `Timestamp` or `Date`/`Time` is treated as that individual history record's note.
 
-Version 1.0.1 derives privacy-safe opaque IDs for legacy rows that do not contain IDs. Event identity uses the NFKC-normalized, trimmed, whitespace-collapsed, lowercase event name; occurrence identity uses that event ID plus the exact normalized ISO timestamp. Importing the same source repeatedly or independently on multiple devices therefore converges without semantic name-based deduplication during normal sync.
+Since version 1.0.1, the app derives privacy-safe opaque IDs for legacy rows that do not contain IDs. Event identity uses the NFKC-normalized, trimmed, whitespace-collapsed, lowercase event name; occurrence identity uses that event ID plus the exact normalized ISO timestamp. Importing the same source repeatedly or independently on multiple devices therefore converges without semantic name-based deduplication during normal sync.
 
 If an older build already created duplicates, do not try to repair them with heuristic name matching:
 
 1. Close Last Time on every other device.
-2. Update one device to version 1.0.1, sign in, and go online.
+2. Update one device to the latest version, sign in, and go online.
 3. Open **Settings → Data → Clear all data**, complete both confirmations, and wait for the OneDrive deletion sync to succeed.
 4. Import the corrected enriched CSV once on that device and sync again.
 5. Reopen the other devices only after that sync completes; let them sync without importing the CSV again.
@@ -104,7 +106,8 @@ This permanently removes existing item/history data but keeps settings and Micro
 Requires Node.js 22. The pinned version is recorded in `.nvmrc`.
 
 ```powershell
-npm install
+npm ci
+npx playwright install chromium
 npm run dev
 ```
 
@@ -112,7 +115,6 @@ Production checks:
 
 ```powershell
 npm run lint
-npm run check:hygiene
 npm run typecheck
 npm test
 npx playwright test
@@ -138,7 +140,7 @@ No client secret is used or needed. Create a **Single-page application** registr
 VITE_MS_CLIENT_ID=00000000-0000-0000-0000-000000000000
 ```
 
-The app pins MSAL Browser to `https://login.microsoftonline.com/common`, matching the organizational-and-personal account audience. It requests only the delegated `Files.ReadWrite.AppFolder` permission and reads/writes `last-time-data.json` under Graph `/me/drive/special/approot`. Organizational tenants may require user or administrator consent according to tenant policy; do not add broader Graph permissions. Sync runs on startup, foreground resume, local changes, manual request, and network restoration. Errors remain visible in the UI.
+The app pins MSAL Browser to `https://login.microsoftonline.com/common`, matching the organizational-and-personal account audience. It requests only the delegated `Files.ReadWrite.AppFolder` permission and reads/writes `last-time-data.json` under Graph `/me/drive/special/approot`. Organizational tenants may require user or administrator consent according to tenant policy; do not add broader Graph permissions. Errors remain visible in the UI.
 
 MSAL always uses the deployment origin root as its redirect URI. The production registration must include exactly `https://lasttime.feliciameow.com/`; do not register a route or omit the trailing slash.
 
@@ -150,15 +152,11 @@ Authentication guidance:
 
 ## Deploy
 
-Production is hosted on Azure Static Web Apps Free at **[https://lasttime.feliciameow.com/](https://lasttime.feliciameow.com/)**. The **Azure Static Web Apps deploy** workflow builds every `main` commit, deploys `dist/`, and runs the production smoke test against the official HTTPS origin; it can also be rerun manually. It preserves the repository's official-Actions-only policy: all GitHub-maintained Actions are pinned to full commit SHAs, and deployment uses the fixed Microsoft `@azure/static-web-apps-cli` version `2.0.10`.
-
-The Azure deployment token is stored only in the GitHub repository secret `AZURE_STATIC_WEB_APPS_API_TOKEN`. The public Entra application ID is stored in the repository variable `AZURE_SWA_TEST_MS_CLIENT_ID`. Never put the deployment token in a repository variable, file, workflow input, or log.
-
-`public/staticwebapp.config.json` supplies the SPA fallback and cache policy. HTML, manifests, and the service worker revalidate on every load or update check; fingerprinted bundles and the versioned touch icon are immutable. The `lasttime.feliciameow.com` CNAME remains DNS-only so application traffic goes directly to Azure.
+Production is hosted on Azure Static Web Apps Free at **[https://lasttime.feliciameow.com/](https://lasttime.feliciameow.com/)**. The **Azure Static Web Apps deploy** workflow builds every `main` commit, deploys `dist/`, and verifies the deployed version against the production origin. `public/staticwebapp.config.json` supplies the SPA fallback and cache policy.
 
 ### Cloudflare rollback
 
-The previous Cloudflare Workers Static Assets deployment remains temporarily available as a rollback target. `wrangler.jsonc` publishes only `dist/` and uses `single-page-application` not-found handling. Do not treat the Workers URL as the primary application link, and do not remove the project until the Azure production path has completed its observation period.
+`wrangler.jsonc` retains the previous Cloudflare Workers Static Assets configuration for manual rollback. The Workers URL is not the primary application link.
 
 ## Offline use and updates
 
@@ -200,13 +198,11 @@ This repository is an independent, unofficial implementation and is not endorsed
 
 ## AI-assisted development
 
-This project was developed with substantial assistance from [GitHub Copilot](https://github.com/features/copilot), primarily using the GPT-5.6 Sol model. AI assistance contributed to architecture, implementation, testing, documentation, and UI validation. Product direction and final acceptance remained human-directed. This project is not sponsored or endorsed by GitHub.
+This project was developed with substantial assistance from [GitHub Copilot](https://github.com/features/copilot). AI assistance contributed to architecture, implementation, testing, documentation, and UI validation. Product direction and final acceptance remained human-directed. This project is not sponsored or endorsed by GitHub.
 
-## License
+## License and platform notes
 
 The original code in this repository is available under the [MIT License](LICENSE), copyright © 2026 y-wan. Google Material Symbols remain available under their Apache-2.0 license. The acknowledgement of Last Time Tracker is nominative credit for product inspiration only and does not grant rights to that app's code, branding, or assets.
-
-## Platform notes and licenses
 
 - Daily reminders and app-lock features are intentionally excluded: Last Time is a historical record, not a task/habit app, and browser background scheduling is not treated as reliable.
 - Event images are not yet supported because portable/offline binary storage and OneDrive merge semantics need a deliberate design; the PWA does not create device-only images that silently fail to sync.
