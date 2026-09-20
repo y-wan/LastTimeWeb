@@ -4,6 +4,7 @@ import path from 'node:path'
 const root = process.cwd()
 const ignoredDirectories = new Set(['.git', 'dist', 'node_modules', 'playwright-report', 'test-results'])
 const allowedFiles = new Set([
+  'README.md',
   'README.zh-CN.md',
   'docs/images/last-time-hero.zh-CN.svg',
   'index.html',
