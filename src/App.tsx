@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
+import packageMetadata from '../package.json'
 import {
   addOccurrence,
   applyPendingOccurrenceDeletion,
@@ -661,6 +662,7 @@ export default function App() {
           </section>
           <section className="settings-card about-card">
             <h2>{t('aboutCredits')}</h2>
+            <p>{t('versionLabel')} {packageMetadata.version}</p>
             <p>{locale === 'en' ? <>
               {t('aboutInspiredPrefix')}<a href="https://apps.apple.com/app/id534982023" target="_blank" rel="noreferrer">{t('originalAppName')}</a>{t('aboutForIosBy')}<a href="https://sarunw.com/" target="_blank" rel="noreferrer">Sarun Wongpatcharapakorn</a>{t('aboutInspiredSuffix')}{t('aboutCreditThanks')} {t('aboutIndependent')}
             </> : <>

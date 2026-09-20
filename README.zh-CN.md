@@ -55,9 +55,11 @@ Last Time 是一款离线优先、可安装的 PWA，用来记住某件事上次
 1. 使用 Safari 打开上述准确地址。
 2. 点按**分享**，然后选择**添加到主屏幕**。
 3. 从主屏幕上的应用图标启动 Last Time。
-4. 当应用显示**发现新版本**时，选择**立即更新**。应用会等待新版 Service Worker 接管后再重新加载；如果激活超时，会显示可重试的错误，而不会一直停留在更新状态。
+4. 当应用显示**发现新版本**时，选择**立即更新**。
 
 首次使用时，安装元数据跟随浏览器的首选语言。此后，在 Last Time 中选择的有效应用语言会同时控制当前页面和后续启动时使用的安装清单：中文显示`上次`，其他语言显示 `Last Time`。已有主屏幕图标可能要等待浏览器刷新安装清单；如需立即确认名称，请先移除旧图标，再重新添加。
+
+当前设备实际运行的版本可在**设置 → 关于与致谢**中查看。
 
 ### 在 Android 上安装
 
@@ -87,12 +89,12 @@ Chrome 和 Edge 148 起可以直接读取清单中的本地化字段。为兼容
 
 先从 [iOS 应用「上次」（Last Time Tracker）](https://apps.apple.com/app/id534982023)导出 CSV，再在本应用中打开**设置 → 数据 → 导入 CSV**。在原始旧版格式中，`Event` 用于标识事项；当一行包含 `Timestamp` 或 `Date`/`Time` 时，通用 `Note` 会被视为该次历史记录的备注。
 
-1.0.1 版会为不含 ID 的旧格式行生成隐私安全的不可读 ID。事项身份依据经过 NFKC 规范化、去除首尾空白、合并连续空白并转为小写的事项名称；历史记录身份依据该事项 ID 与规范化后的准确 ISO 时间戳。因而，同一份源文件在一台设备重复导入，或在多台设备分别导入后同步，都会收敛到相同记录；正常同步本身仍不会按名称进行语义去重。
+从 1.0.1 版起，应用会为不含 ID 的旧格式行生成隐私安全的不可读 ID。事项身份依据经过 NFKC 规范化、去除首尾空白、合并连续空白并转为小写的事项名称；历史记录身份依据该事项 ID 与规范化后的准确 ISO 时间戳。因而，同一份源文件在一台设备重复导入，或在多台设备分别导入后同步，都会收敛到相同记录；正常同步本身仍不会按名称进行语义去重。
 
 如果旧版本已经产生重复数据，请不要使用按名称猜测的方式修复：
 
 1. 关闭其他所有设备上的 Last Time。
-2. 将其中一台设备更新到 1.0.1，登录 Microsoft 并保持联网。
+2. 将其中一台设备更新到最新版本，登录 Microsoft 并保持联网。
 3. 打开**设置 → 数据 → 清空所有数据**，完成两步确认，并等待 OneDrive 删除同步成功。
 4. 只在这台设备上导入一次修正后的扩展 CSV，然后再次同步。
 5. 该次同步完成后再重新打开其他设备，让它们直接同步，不要再次导入 CSV。
@@ -104,7 +106,8 @@ Chrome 和 Edge 148 起可以直接读取清单中的本地化字段。为兼容
 需要 Node.js 22；固定版本记录在 `.nvmrc`。
 
 ```powershell
-npm install
+npm ci
+npx playwright install chromium
 npm run dev
 ```
 
@@ -112,7 +115,6 @@ npm run dev
 
 ```powershell
 npm run lint
-npm run check:hygiene
 npm run typecheck
 npm test
 npx playwright test
@@ -138,7 +140,7 @@ npm run lighthouse
 VITE_MS_CLIENT_ID=00000000-0000-0000-0000-000000000000
 ```
 
-应用将 MSAL Browser 固定到 `https://login.microsoftonline.com/common`，与“组织帐户和个人 Microsoft 帐户”受众一致。应用只请求委托权限 `Files.ReadWrite.AppFolder`，并通过 Graph `/me/drive/special/approot` 读写 `last-time-data.json`。组织租户可能会根据租户策略要求用户或管理员同意；不要添加范围更大的 Graph 权限。同步会在启动、回到前台、本地数据变化、手动请求以及网络恢复时运行，错误会明确显示在界面中。
+应用将 MSAL Browser 固定到 `https://login.microsoftonline.com/common`，与“组织帐户和个人 Microsoft 帐户”受众一致。应用只请求委托权限 `Files.ReadWrite.AppFolder`，并通过 Graph `/me/drive/special/approot` 读写 `last-time-data.json`。组织租户可能会根据租户策略要求用户或管理员同意；不要添加范围更大的 Graph 权限。错误会明确显示在界面中。
 
 MSAL 始终使用部署源站的根地址作为重定向 URI。正式环境必须准确注册 `https://lasttime.feliciameow.com/`；不要注册子路由，也不要省略末尾斜杠。
 
@@ -150,15 +152,11 @@ MSAL 始终使用部署源站的根地址作为重定向 URI。正式环境必�
 
 ## 部署
 
-正式环境使用 Azure Static Web Apps Free，地址为 **[https://lasttime.feliciameow.com/](https://lasttime.feliciameow.com/)**。**Azure Static Web Apps deploy** 工作流会构建每个 `main` commit、部署 `dist/`，并针对正式 HTTPS 地址运行 production smoke；也可以手动重跑。工作流保持仓库“仅允许 GitHub 官方 Action”的策略：GitHub 官方 Action 均固定完整 commit SHA，部署使用固定版本 `2.0.10` 的 Microsoft `@azure/static-web-apps-cli`。
-
-Azure deployment token 仅保存在 GitHub 仓库 Secret `AZURE_STATIC_WEB_APPS_API_TOKEN`。公开的 Entra 应用程序 ID 保存在仓库 Variable `AZURE_SWA_TEST_MS_CLIENT_ID`。deployment token 绝不能写入仓库 Variable、文件、工作流输入或日志。
-
-`public/staticwebapp.config.json` 提供 SPA fallback 与缓存策略：HTML、manifest 和 Service Worker 每次加载或更新检查时都重新验证；带指纹的 bundle 和带版本号的 touch icon 使用长期 immutable 缓存。`lasttime.feliciameow.com` 的 CNAME 保持 DNS-only，应用流量直接进入 Azure。
+正式环境使用 Azure Static Web Apps Free，地址为 **[https://lasttime.feliciameow.com/](https://lasttime.feliciameow.com/)**。**Azure Static Web Apps deploy** 工作流会构建每个 `main` commit、部署 `dist/`，并针对正式地址验证已部署版本。`public/staticwebapp.config.json` 提供 SPA fallback 与缓存策略。
 
 ### Cloudflare 回滚
 
-此前的 Cloudflare Workers Static Assets 部署暂时保留为回滚目标。`wrangler.jsonc` 仍只发布 `dist/`，并使用 `single-page-application` 未找到处理。不要再把 Workers 地址作为正式应用入口；在 Azure 正式路径完成观察期前，不要删除该项目。
+`wrangler.jsonc` 保留此前的 Cloudflare Workers Static Assets 配置，供需要时手动回滚。Workers 地址不是正式应用入口。
 
 ## 离线使用与更新
 
@@ -200,13 +198,11 @@ Last Time 的核心理念与许多交互设计受到 [Sarun Wongpatcharapakorn](
 
 ## AI 辅助开发
 
-本项目在开发过程中大量使用了 [GitHub Copilot](https://github.com/features/copilot)，主要使用 GPT-5.6 Sol 模型，协助完成架构设计、代码实现、测试、文档和 UI 验证。产品方向与最终验收由用户主导。本项目与 GitHub 不存在赞助或背书关系。
+本项目在开发过程中大量使用了 [GitHub Copilot](https://github.com/features/copilot)，协助完成架构设计、代码实现、测试、文档和 UI 验证。产品方向与最终验收由用户主导。本项目与 GitHub 不存在赞助或背书关系。
 
-## 许可证
+## 许可证与平台说明
 
 本仓库的原创代码采用 [MIT License](LICENSE)，版权 © 2026 y-wan。Google Material Symbols 仍遵循其 Apache-2.0 许可证。对 Last Time Tracker 的说明仅用于注明产品灵感来源，并不授予使用该应用代码、品牌或资源的权利。
-
-## 平台说明与许可证
 
 - 本项目有意不包含每日提醒和应用锁功能：Last Time 用于记录历史，不是任务或习惯应用，也不会把浏览器后台调度描述成可靠能力。
 - 目前尚不支持事项图片，因为可移植的离线二进制存储与 OneDrive 合并语义需要单独设计；PWA 不会创建只能留在本机、却静默无法同步的图片。

@@ -235,12 +235,14 @@ describe('full-screen navigation', () => {
     }
     expect(screen.getByText(/independent, unofficial implementation/)).not.toBeNull()
     expect(screen.getByText(/encourage you to support and use the/)).not.toBeNull()
+    expect(screen.getByText('Version 1.0.6')).not.toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: '简体中文' }))
     expect((await screen.findByRole('link', { name: '官方网站' })).getAttribute('href')).toBe('https://lasttimeapp.com/')
     expect(screen.getByRole('link', { name: '在 App Store 查看' }).getAttribute('href')).toBe('https://apps.apple.com/app/id534982023')
     expect(screen.getByRole('link', { name: '原版「上次」' }).getAttribute('href')).toBe('https://apps.apple.com/app/id534982023')
     expect(document.querySelector('.credit-footer')?.textContent).toBe('与 GitHub Copilot 一起打造')
+    expect(screen.getByText('版本 1.0.6')).not.toBeNull()
 
     const cards = [...document.querySelectorAll('.settings-card')]
     expect(cards.at(-2)?.classList.contains('about-card')).toBe(true)
