@@ -36,6 +36,7 @@ jobs:
         run: node -e "console.log('value=' + require('./package.json').version)" >> "$GITHUB_OUTPUT"
       - name: Verify deployed commit
         env:
+          PRODUCTION_URL: https://lasttime.feliciameow.com
           EXPECTED_VERSION: ${{ steps.version.outputs.value }}
           EXPECTED_SHA: ${{ github.sha }}
-        run: node scripts/production-smoke.mjs --version="$EXPECTED_VERSION" --sha="$EXPECTED_SHA"
+        run: node scripts/production-smoke.mjs --url="$PRODUCTION_URL" --version="$EXPECTED_VERSION" --sha="$EXPECTED_SHA"

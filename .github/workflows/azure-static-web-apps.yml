@@ -1,11 +1,14 @@
-name: Azure Static Web Apps test deploy
+name: Azure Static Web Apps deploy
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       site_url:
-        description: Azure Static Web Apps test origin, without a trailing slash
-        required: true
+        description: Production origin to verify, without a trailing slash
+        required: false
+        default: https://lasttime.feliciameow.com
         type: string
 
 permissions:
@@ -46,6 +49,6 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Verify the deployed version and commit
         env:
-          SITE_URL: ${{ inputs.site_url }}
+          SITE_URL: ${{ inputs.site_url || 'https://lasttime.feliciameow.com' }}
           EXPECTED_SHA: ${{ github.sha }}
         run: node scripts/production-smoke.mjs --url="$SITE_URL" --version="$(node -p "require('./package.json').version")" --sha="$EXPECTED_SHA"

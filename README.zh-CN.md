@@ -150,7 +150,7 @@ MSAL 始终使用部署源站的根地址作为重定向 URI。正式环境必�
 
 ## 部署
 
-正式环境使用 Azure Static Web Apps Free，地址为 **[https://lasttime.feliciameow.com/](https://lasttime.feliciameow.com/)**。只能手动触发的 **Azure Static Web Apps test deploy** 工作流会构建选定的 `main` commit、部署 `dist/`，并针对输入的 HTTPS 地址运行 production smoke。工作流保持仓库“仅允许 GitHub 官方 Action”的策略：GitHub 官方 Action 均固定完整 commit SHA，部署使用固定版本 `2.0.10` 的 Microsoft `@azure/static-web-apps-cli`。
+正式环境使用 Azure Static Web Apps Free，地址为 **[https://lasttime.feliciameow.com/](https://lasttime.feliciameow.com/)**。**Azure Static Web Apps deploy** 工作流会构建每个 `main` commit、部署 `dist/`，并针对正式 HTTPS 地址运行 production smoke；也可以手动重跑。工作流保持仓库“仅允许 GitHub 官方 Action”的策略：GitHub 官方 Action 均固定完整 commit SHA，部署使用固定版本 `2.0.10` 的 Microsoft `@azure/static-web-apps-cli`。
 
 Azure deployment token 仅保存在 GitHub 仓库 Secret `AZURE_STATIC_WEB_APPS_API_TOKEN`。公开的 Entra 应用程序 ID 保存在仓库 Variable `AZURE_SWA_TEST_MS_CLIENT_ID`。deployment token 绝不能写入仓库 Variable、文件、工作流输入或日志。
 

@@ -150,7 +150,7 @@ Authentication guidance:
 
 ## Deploy
 
-Production is hosted on Azure Static Web Apps Free at **[https://lasttime.feliciameow.com/](https://lasttime.feliciameow.com/)**. The manually triggered **Azure Static Web Apps test deploy** workflow builds the selected `main` commit, deploys `dist/`, and runs the production smoke test against the supplied HTTPS origin. It preserves the repository's official-Actions-only policy: all GitHub-maintained Actions are pinned to full commit SHAs, and deployment uses the fixed Microsoft `@azure/static-web-apps-cli` version `2.0.10`.
+Production is hosted on Azure Static Web Apps Free at **[https://lasttime.feliciameow.com/](https://lasttime.feliciameow.com/)**. The **Azure Static Web Apps deploy** workflow builds every `main` commit, deploys `dist/`, and runs the production smoke test against the official HTTPS origin; it can also be rerun manually. It preserves the repository's official-Actions-only policy: all GitHub-maintained Actions are pinned to full commit SHAs, and deployment uses the fixed Microsoft `@azure/static-web-apps-cli` version `2.0.10`.
 
 The Azure deployment token is stored only in the GitHub repository secret `AZURE_STATIC_WEB_APPS_API_TOKEN`. The public Entra application ID is stored in the repository variable `AZURE_SWA_TEST_MS_CLIENT_ID`. Never put the deployment token in a repository variable, file, workflow input, or log.
 
