@@ -226,6 +226,7 @@ legend { margin-bottom: 10px; font-weight: 800; }
   header { flex-wrap: wrap; padding-inline: 16px; }
   header h1 { font-size: 1.8rem; }
   .sync-control { max-width: 100%; margin-left: auto; }
+  .sync-control[data-status='checking'] { flex: 0 0 100%; width: 100%; margin-left: 0; justify-items: center; }
   .sync-badge { max-width: 100%; }
   .settings-card { padding: 15px; }
   .detail-actions { gap: 8px; }
