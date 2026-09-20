@@ -1,6 +1,9 @@
 name: Release
 
 on:
+  workflow_run:
+    workflows: ["Azure Static Web Apps deploy"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       version:
@@ -16,8 +19,66 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  prepare:
+    name: Prepare release
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main'
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      should_release: ${{ steps.release.outputs.should_release }}
+      target_sha: ${{ steps.release.outputs.target_sha }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - id: release
+        name: Detect unpublished version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+          TARGET_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          package_version="$(node -p "require('./package.json').version")"
+          version="${REQUESTED_VERSION:-$package_version}"
+
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Version must use the form X.Y.Z." >&2
+            exit 1
+          fi
+          test "$version" = "$package_version"
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+          test -z "$(git status --porcelain)"
+
+          if git rev-parse --verify --quiet "refs/tags/v$version"; then
+            if [[ "$EVENT_NAME" = "workflow_dispatch" ]]; then
+              echo "Version v$version has already been released." >&2
+              exit 1
+            fi
+            echo "Version v$version already exists; no release is needed."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "should_release=true" >> "$GITHUB_OUTPUT"
+          echo "target_sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
   validate:
     name: Validate release
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -25,7 +86,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
-          ref: main
+          ref: ${{ needs.prepare.outputs.target_sha }}
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
@@ -34,14 +95,9 @@ jobs:
           cache: npm
       - name: Validate release target
         env:
-          VERSION: ${{ inputs.version }}
-          EXPECTED_SHA: ${{ github.sha }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          EXPECTED_SHA: ${{ needs.prepare.outputs.target_sha }}
         run: |
-          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Version must use the form X.Y.Z." >&2
-            exit 1
-          fi
-          test "$GITHUB_REF" = "refs/heads/main"
           test "$VERSION" = "$(node -p "require('./package.json').version")"
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
           test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
@@ -58,23 +114,28 @@ jobs:
       - name: Verify production target
         env:
           PRODUCTION_URL: https://lasttime.feliciameow.com
-          VERSION: ${{ inputs.version }}
-          EXPECTED_SHA: ${{ github.sha }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          EXPECTED_SHA: ${{ needs.prepare.outputs.target_sha }}
         run: node scripts/production-smoke.mjs --url="$PRODUCTION_URL" --version="$VERSION" --sha="$EXPECTED_SHA"
 
   publish:
     name: Publish release
-    needs: validate
+    needs: [prepare, validate]
+    if: needs.prepare.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ needs.prepare.outputs.target_sha }}
+          persist-credentials: false
       - name: Create stable release
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
-          TARGET_SHA: ${{ github.sha }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TARGET_SHA: ${{ needs.prepare.outputs.target_sha }}
         run: |
           if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Version must use the form X.Y.Z." >&2
@@ -100,15 +161,9 @@ jobs:
           {
             echo "Official PWA: https://lasttime.feliciameow.com"
             echo
-            if [[ "$VERSION" = "1.0.3" ]]; then
-              echo "## Highlights"
-              echo
-              echo "- Moves the official application entry point to Azure Static Web Apps."
-              echo "- Starts OneDrive synchronization shortly after recording an occurrence instead of waiting for the undo window."
-              echo "- Keeps undo reliable by synchronizing the compensating deletion when used."
-              echo "- Retains the previous Cloudflare deployment temporarily as a rollback target."
-              echo
-              echo "No local data migration or OneDrive file-format change is required."
+            curated_notes=".github/release-notes/$VERSION.md"
+            if [[ -f "$curated_notes" ]]; then
+              cat "$curated_notes"
               echo
             fi
             printf '%s\n' "$generated_notes"
