@@ -354,7 +354,7 @@ export default function App() {
   const [undoId, setUndoId] = useState<string | null>(null)
   const undoIdRef = useRef<string | undefined>(undefined)
   const undoTimerRef = useRef<number | undefined>(undefined)
-  const [undoFailure, setUndoFailure] = useState<{ occurrenceId: string; detail: string } | null>(null)
+  const [undoFailures, setUndoFailures] = useState<Array<{ occurrenceId: string; detail: string }>>([])
   const [undoRetrying, setUndoRetrying] = useState(false)
   const [auth, setAuth] = useState<AuthSnapshot>({ ready: !isSyncConfigured() })
   const [notice, setNotice] = useState('')
@@ -474,6 +474,7 @@ export default function App() {
   const surfaceColor = resolvedPaletteRoles(colorTheme, theme, systemDark).surface
   const previewDark = theme === 'dark' || (theme === 'system' && systemDark)
   const identity = auth.account ? accountIdentity(auth.account) : undefined
+  const undoFailure = undoFailures[0]
   const updateMessage = update.errorKind === 'timeout'
     ? t('updateTimeout')
     : update.error
@@ -498,13 +499,14 @@ export default function App() {
     setUndoRetrying(true)
     try {
       await deleteOccurrence(occurrenceId)
-      setUndoFailure(null)
+      setUndoFailures((current) => current.filter((failure) => failure.occurrenceId !== occurrenceId))
       mutate()
     } catch (cause) {
-      setUndoFailure({
-        occurrenceId,
-        detail: cause instanceof Error ? cause.message : String(cause)
-      })
+      const failure = { occurrenceId, detail: cause instanceof Error ? cause.message : String(cause) }
+      setUndoFailures((current) => [
+        ...current.filter((item) => item.occurrenceId !== occurrenceId),
+        failure
+      ])
     } finally {
       setUndoRetrying(false)
     }
@@ -782,7 +784,7 @@ export default function App() {
         copiedLabel={t('copied')}
         copyFailedLabel={t('copyFailed')}
         dismissLabel={t('dismiss')}
-        onDismiss={() => setUndoFailure(null)}
+        onDismiss={() => setUndoFailures((current) => current.filter((failure) => failure.occurrenceId !== undoFailure.occurrenceId))}
       >
         <button className="primary" disabled={undoRetrying} onClick={() => void deleteMarkedOccurrence(undoFailure.occurrenceId)}>
           {undoRetrying ? t('retrying') : t('retry')}
