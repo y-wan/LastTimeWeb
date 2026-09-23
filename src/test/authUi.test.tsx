@@ -90,6 +90,19 @@ describe('Microsoft cold-start UI', () => {
     expect(screen.queryByRole('button', { name: 'Sign in with Microsoft' })).toBeNull()
   })
 
+  it('does not claim a successful connection or start sync before redirect returns', async () => {
+    authMock.snapshot = { ready: true, status: 'reconnect-required' }
+    authMock.signIn.mockResolvedValue(undefined)
+    render(<App />)
+    await openSettings()
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Reconnect Microsoft' })[0])
+
+    await waitFor(() => expect(authMock.signIn).toHaveBeenCalledOnce())
+    expect(authMock.synchronize).not.toHaveBeenCalled()
+    expect(screen.getAllByRole('button', { name: 'Reconnect Microsoft' }).length).toBeGreaterThan(0)
+  })
+
   it('keeps an offline reconnect truthful and disabled', async () => {
     Object.defineProperty(navigator, 'onLine', { configurable: true, value: false })
     authMock.snapshot = { ready: true, status: 'reconnect-required', offline: true }

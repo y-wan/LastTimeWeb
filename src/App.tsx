@@ -499,7 +499,7 @@ export default function App() {
     setAuth((current) => ({ ...current, error: undefined }))
     try {
       const account = await signIn()
-      await sync.runUser(account.homeAccountId)
+      if (account) await sync.runUser(account.homeAccountId)
     } catch (cause) {
       setAuth((current) => ({
         ...current,

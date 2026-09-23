@@ -1,9 +1,7 @@
+import { BrowserCacheLocation, PublicClientApplication, type AccountInfo, type Configuration } from '@azure/msal-browser'
+import { isIosStandalonePwa, resolveCommonAuthority, rootRedirectUri, selectAccount } from './auth'
 import {
-  BrowserCacheLocation, InteractionRequiredAuthError, PublicClientApplication,
-  type AccountInfo, type Configuration
-} from '@azure/msal-browser'
-import { resolveCommonAuthority, rootRedirectUri, selectAccount } from './auth'
-import {
+  acquireMicrosoftToken,
   initializeMicrosoftSession,
   signInMicrosoft,
   signOutMicrosoft,
@@ -113,6 +111,7 @@ export function isSyncConfigured() {
 export async function currentAccount() {
   const instance = await initialize()
   if (!instance) return undefined
+  if (authSnapshot.status === 'reconnect-required') return undefined
   const account = selectAccount(undefined, instance.getActiveAccount(), instance.getAllAccounts())
   if (account && instance.getActiveAccount()?.homeAccountId !== account.homeAccountId) {
     instance.setActiveAccount(account)
@@ -155,8 +154,10 @@ export async function signIn() {
     client: instance,
     store: authStateStore,
     scopes,
-    reconnecting: authSnapshot.status === 'reconnect-required'
+    reconnecting: authSnapshot.status === 'reconnect-required',
+    redirect: isIosStandalonePwa()
   })
+  if (!account) return undefined
   publishAuth({ ready: true, status: 'connected', account })
   return account
 }
@@ -178,12 +179,13 @@ export async function signOut() {
 async function token(account: AccountInfo) {
   const instance = await initialize()
   if (!instance) throw new Error('MSAL is not configured')
-  try {
-    return (await instance.acquireTokenSilent({ account, scopes })).accessToken
-  } catch (error) {
-    if (!(error instanceof InteractionRequiredAuthError)) throw error
-    return (await instance.acquireTokenPopup({ account, scopes })).accessToken
-  }
+  return acquireMicrosoftToken({
+    client: instance,
+    account,
+    scopes,
+    redirectOnInteraction: isIosStandalonePwa(),
+    onReconnectRequired: () => publishAuth({ ready: true, status: 'reconnect-required' })
+  })
 }
 
 export async function localDocument(): Promise<SyncDocument> {
