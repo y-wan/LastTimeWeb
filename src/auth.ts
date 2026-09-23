@@ -34,3 +34,7 @@ export function accountIdentity(account: AuthAccountIdentity) {
 export function rootRedirectUri(origin: string) {
   return new URL('/', origin).toString()
 }
+
+export function isIosStandalonePwa(browser: Navigator | { standalone?: boolean } = navigator) {
+  return 'standalone' in browser && browser.standalone === true
+}

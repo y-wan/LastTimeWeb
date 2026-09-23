@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { accountIdentity, COMMON_AUTHORITY, resolveCommonAuthority, rootRedirectUri, selectAccount } from '../auth'
+import { accountIdentity, COMMON_AUTHORITY, isIosStandalonePwa, resolveCommonAuthority, rootRedirectUri, selectAccount } from '../auth'
 
 describe('Microsoft account restoration', () => {
   it('prefers redirect, then active, then cached accounts', () => {
@@ -26,5 +26,11 @@ describe('Microsoft account restoration', () => {
     expect(resolveCommonAuthority()).toBe(COMMON_AUTHORITY)
     expect(COMMON_AUTHORITY).toBe('https://login.microsoftonline.com/common')
     expect(() => resolveCommonAuthority('https://login.microsoftonline.com/consumers')).toThrow('/common')
+  })
+
+  it('uses redirect only for the iOS Home Screen context, not a normal browser', () => {
+    expect(isIosStandalonePwa({ standalone: true })).toBe(true)
+    expect(isIosStandalonePwa({ standalone: false })).toBe(false)
+    expect(isIosStandalonePwa({})).toBe(false)
   })
 })

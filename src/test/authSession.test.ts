@@ -1,6 +1,14 @@
-import type { AccountInfo, EndSessionPopupRequest, PopupRequest, SsoSilentRequest } from '@azure/msal-browser'
+import {
+  InteractionRequiredAuthError,
+  type AccountInfo,
+  type EndSessionPopupRequest,
+  type PopupRequest,
+  type RedirectRequest,
+  type SsoSilentRequest
+} from '@azure/msal-browser'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  acquireMicrosoftToken,
   initializeMicrosoftSession,
   signInMicrosoft,
   signOutMicrosoft,
@@ -28,6 +36,7 @@ function client(overrides: Partial<MicrosoftAuthClient> = {}) {
     setActiveAccount: vi.fn(),
     ssoSilent: vi.fn().mockRejectedValue(new Error('interaction_required')),
     loginPopup: vi.fn().mockResolvedValue({ account: account() }),
+    loginRedirect: vi.fn().mockResolvedValue(undefined),
     logoutPopup: vi.fn().mockResolvedValue(undefined),
     ...overrides
   }
@@ -152,6 +161,43 @@ describe('MSAL v4 cold-start restoration', () => {
     })
   })
 
+  it('shows a redirect callback failure without losing the reconnect hint', async () => {
+    await rememberMicrosoftConnection('person@example.com')
+    const msal = client({
+      handleRedirectPromise: vi.fn().mockRejectedValue(new Error('redirect failed'))
+    })
+
+    expect(await initializeMicrosoftSession({
+      client: msal,
+      store: indexedDbStore(),
+      scopes: ['Files.ReadWrite.AppFolder'],
+      online: true
+    })).toEqual({
+      ready: true,
+      status: 'reconnect-required',
+      error: 'redirect failed'
+    })
+    expect(msal.ssoSilent).not.toHaveBeenCalled()
+    expect(await readMicrosoftAuthState()).toMatchObject({ loginHint: 'person@example.com' })
+  })
+
+  it('restores a redirected account and resumes the existing connection', async () => {
+    await rememberMicrosoftConnection('person@example.com')
+    const restored = account()
+    const msal = client({
+      handleRedirectPromise: vi.fn().mockResolvedValue({ account: restored })
+    })
+
+    expect(await initializeMicrosoftSession({
+      client: msal,
+      store: indexedDbStore(),
+      scopes: ['Files.ReadWrite.AppFolder'],
+      online: true
+    })).toEqual({ ready: true, status: 'connected', account: restored })
+    expect(msal.setActiveAccount).toHaveBeenCalledWith(restored)
+    expect(msal.ssoSilent).not.toHaveBeenCalled()
+  })
+
   it('keeps genuine MSAL initialization failures distinct from signed-out state', async () => {
     const msal = client({ initialize: vi.fn().mockRejectedValue(new Error('storage unavailable')) })
 
@@ -190,6 +236,64 @@ describe('MSAL v4 cold-start restoration', () => {
       scopes: ['Files.ReadWrite.AppFolder'],
       prompt: 'select_account'
     } satisfies PopupRequest)
+  })
+
+  it('redirects a reconnect without opening a popup or claiming completion before the callback', async () => {
+    await rememberMicrosoftConnection('person@example.com')
+    const msal = client()
+
+    expect(await signInMicrosoft({
+      client: msal,
+      store: indexedDbStore(),
+      scopes: ['Files.ReadWrite.AppFolder'],
+      reconnecting: true,
+      redirect: true
+    })).toBeUndefined()
+    expect(msal.loginRedirect).toHaveBeenCalledWith({
+      scopes: ['Files.ReadWrite.AppFolder'],
+      loginHint: 'person@example.com'
+    } satisfies RedirectRequest)
+    expect(msal.loginPopup).not.toHaveBeenCalled()
+  })
+
+  it('asks for an explicit reconnect instead of opening a popup during iPhone background sync', async () => {
+    const failure = new InteractionRequiredAuthError('interaction_required')
+    const tokenClient = {
+      acquireTokenSilent: vi.fn().mockRejectedValue(failure),
+      acquireTokenPopup: vi.fn()
+    }
+    const onReconnectRequired = vi.fn()
+
+    await expect(acquireMicrosoftToken({
+      client: tokenClient,
+      account: account(),
+      scopes: ['Files.ReadWrite.AppFolder'],
+      redirectOnInteraction: true,
+      onReconnectRequired
+    })).rejects.toBe(failure)
+    expect(onReconnectRequired).toHaveBeenCalledOnce()
+    expect(tokenClient.acquireTokenPopup).not.toHaveBeenCalled()
+  })
+
+  it('preserves desktop interactive token acquisition and propagates unrelated failures', async () => {
+    const failure = new InteractionRequiredAuthError('interaction_required')
+    const tokenClient = {
+      acquireTokenSilent: vi.fn().mockRejectedValueOnce(failure).mockRejectedValueOnce(new Error('network failed')),
+      acquireTokenPopup: vi.fn().mockResolvedValue({ accessToken: 'desktop-token' })
+    }
+    const onReconnectRequired = vi.fn()
+    const input = {
+      client: tokenClient,
+      account: account(),
+      scopes: ['Files.ReadWrite.AppFolder'],
+      redirectOnInteraction: false,
+      onReconnectRequired
+    }
+
+    await expect(acquireMicrosoftToken(input)).resolves.toBe('desktop-token')
+    await expect(acquireMicrosoftToken(input)).rejects.toThrow('network failed')
+    expect(tokenClient.acquireTokenPopup).toHaveBeenCalledOnce()
+    expect(onReconnectRequired).not.toHaveBeenCalled()
   })
 
   it('clears the marker on explicit logout even when the popup fails', async () => {
