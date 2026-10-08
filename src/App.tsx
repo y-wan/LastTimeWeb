@@ -656,6 +656,16 @@ export default function App() {
               dismissLabel={t('dismiss')}
               onDismiss={() => setSettingsErrorDismissed(true)}
             />}
+            {auth.startupDiagnostics && <Notice
+              className="inline-notice"
+              message={<><strong>{t('startupDiagnostics')}</strong><br />{t('startupDiagnosticsPrivacy')}</>}
+              detail={auth.startupDiagnostics}
+              showDetailsLabel={t('showDetails')}
+              hideDetailsLabel={t('hideDetails')}
+              copyDetailsLabel={t('copyDetails')}
+              copiedLabel={t('copied')}
+              copyFailedLabel={t('copyFailed')}
+            />}
           </section>
           <section className="settings-card"><h2>{t('data')}</h2><div className="data-actions">
             <label className="data-action"><span><MaterialIcon name="upload" size={22} /></span><div><strong>{t('import')}</strong><small>{t('importHint')}</small></div><input hidden type="file" accept=".csv,text/csv" onChange={async (event) => {

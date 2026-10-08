@@ -28,6 +28,7 @@ vi.mock('../onedrive', () => ({
 import App from '../App'
 
 beforeEach(async () => {
+  localStorage.clear()
   Object.defineProperty(window, 'matchMedia', {
     configurable: true,
     value: vi.fn().mockReturnValue({
@@ -245,6 +246,42 @@ describe('Microsoft cold-start UI', () => {
     expect(screen.getByText(/无法恢复 Microsoft 连接，请先重试/)).not.toBeNull()
     expect(screen.getAllByRole('button', { name: '重试' }).length).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: '重新连接 Microsoft' })).not.toBeNull()
+  })
+
+  it.each([
+    ['en', 'Settings', 'Startup diagnostics', 'Show details', 'Copy details', 'Copied'],
+    ['zh-CN', '设置', '启动诊断', '查看详情', '复制详情', '已复制']
+  ] as const)('keeps %s startup diagnostics collapsed and copies only its report', async (locale, settings, title, details, copy, copied) => {
+    await db.settings.put({ key: 'settings', locale, theme: 'light', colorTheme: 'vitalOrange' })
+    const report = JSON.stringify({ schema: 1, outcome: 'connected', stagesMs: { redirectRoundTrip: 2345 } })
+    authMock.snapshot = { ready: true, status: 'disconnected', startupDiagnostics: report }
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    render(<App />)
+    fireEvent.click(await screen.findByRole('button', { name: settings }))
+    expect(screen.getByText(title)).not.toBeNull()
+    expect(screen.queryByText(report)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: details }))
+    expect(screen.getByText(report)).not.toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: copy }))
+    await waitFor(() => expect(screen.getByRole('button', { name: copied })).not.toBeNull())
+    expect(writeText).toHaveBeenCalledExactlyOnceWith(report)
+    expect(authMock.signIn).not.toHaveBeenCalled()
+  })
+
+  it('surfaces copy failure without hiding diagnostics or reconnect actions', async () => {
+    const report = '{"outcome":"reconnect-required"}'
+    authMock.snapshot = { ready: true, status: 'reconnect-required', startupDiagnostics: report }
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true, value: { writeText: vi.fn().mockRejectedValue(new Error('clipboard denied')) }
+    })
+    render(<App />)
+    await openSettings()
+    fireEvent.click(screen.getByRole('button', { name: 'Show details' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Copy details' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Copy failed' })).not.toBeNull())
+    expect(screen.getByText(report)).not.toBeNull()
+    expect(screen.getAllByRole('button', { name: 'Reconnect Microsoft' }).length).toBeGreaterThan(0)
   })
 
   it('renders localized reconnect copy', async () => {

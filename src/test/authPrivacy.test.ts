@@ -2,15 +2,33 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { db } from '../db'
 import { localDocument } from '../onedrive'
 import { exportCsv } from '../csv'
+import { AUTH_STARTUP_PENDING_KEY, AUTH_STARTUP_REPORT_KEY, AuthStartupDiagnostics } from '../authStartupDiagnostics'
 
 beforeEach(async () => {
   await db.events.clear()
   await db.occurrences.clear()
   await db.pendingOccurrenceDeletions.clear()
   await db.microsoftAuthState.clear()
+  localStorage.removeItem(AUTH_STARTUP_PENDING_KEY)
+  localStorage.removeItem(AUTH_STARTUP_REPORT_KEY)
 })
 
 describe('local Microsoft recovery privacy', () => {
+  it('keeps both completed and pending startup diagnostics out of OneDrive and CSV data', async () => {
+    const trace = new AuthStartupDiagnostics('1.0.10')
+    trace.recordCachedAccount(true)
+    trace.finish('connected')
+    trace.beforeNavigation()
+    expect(localStorage.getItem(AUTH_STARTUP_REPORT_KEY)).not.toBeNull()
+    expect(localStorage.getItem(AUTH_STARTUP_PENDING_KEY)).not.toBeNull()
+    const serialized = JSON.stringify(await localDocument())
+    const portable = exportCsv([], [])
+    for (const field of ['startupDiagnostics', 'cacheCounts', 'msalKeyCookieAtStart', 'cachedAccountBeforeRedirectHandling', 'stagesMs']) {
+      expect(serialized).not.toContain(field)
+      expect(portable).not.toContain(field)
+    }
+    expect(Object.keys(JSON.parse(serialized))).toEqual(['version', 'updatedAt', 'events', 'occurrences'])
+  })
   it('never serializes the marker or login hint into the OneDrive document', async () => {
     await db.microsoftAuthState.put({
       key: 'microsoft',
