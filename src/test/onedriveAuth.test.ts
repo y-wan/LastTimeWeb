@@ -34,10 +34,11 @@ function account(): AccountInfo {
   }
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.resetModules()
   vi.stubEnv('VITE_MS_CLIENT_ID', 'test-client-id')
   Object.defineProperty(navigator, 'standalone', { configurable: true, value: true })
+  Object.defineProperty(navigator, 'onLine', { configurable: true, value: true })
   Object.values(msal).forEach((method) => method.mockReset())
   let activeAccount: AccountInfo | null = null
   msal.initialize.mockResolvedValue(undefined)
@@ -49,6 +50,8 @@ beforeEach(() => {
   })
   msal.ssoSilent.mockRejectedValue(new InteractionRequiredAuthError('interaction_required'))
   msal.loginRedirect.mockResolvedValue(undefined)
+  const { db } = await import('../db')
+  await db.microsoftAuthState.clear()
 })
 
 afterEach(() => {
@@ -95,5 +98,99 @@ describe('installed iPhone Microsoft authorization', () => {
     expect(snapshots.at(-1)).toBe('reconnect-required')
     expect(await onedrive.currentAccount()).toBeUndefined()
     expect(msal.acquireTokenPopup).not.toHaveBeenCalled()
+  })
+
+  it('restores silently after a network failure without requesting sign-in', async () => {
+    const { rememberMicrosoftConnection } = await import('../db')
+    await rememberMicrosoftConnection('person@example.com')
+    msal.ssoSilent.mockRejectedValue(new Error('network failed'))
+    const onedrive = await import('../onedrive')
+    const snapshots: string[] = []
+    onedrive.subscribeAuth((snapshot) => snapshots.push(snapshot.status))
+    await vi.waitFor(() => expect(snapshots).toContain('restore-failed'))
+
+    msal.ssoSilent.mockResolvedValue({ account: account() })
+    await expect(onedrive.retryAuthRestore()).resolves.toBe(true)
+    expect(snapshots.at(-1)).toBe('connected')
+    expect(await onedrive.currentAccount()).toEqual(account())
+    expect(msal.ssoSilent).toHaveBeenCalledTimes(2)
+    expect(msal.loginRedirect).not.toHaveBeenCalled()
+    expect(msal.loginPopup).not.toHaveBeenCalled()
+  })
+
+  it('keeps repeated failures retryable and coalesces simultaneous recovery triggers', async () => {
+    const { rememberMicrosoftConnection } = await import('../db')
+    await rememberMicrosoftConnection('person@example.com')
+    msal.ssoSilent.mockRejectedValue(new Error('network failed'))
+    const onedrive = await import('../onedrive')
+    const snapshots: string[] = []
+    onedrive.subscribeAuth((snapshot) => snapshots.push(snapshot.status))
+    await vi.waitFor(() => expect(snapshots).toContain('restore-failed'))
+
+    await Promise.all([onedrive.retryAuthRestore(), onedrive.retryAuthRestore()])
+    expect(msal.ssoSilent).toHaveBeenCalledTimes(2)
+    expect(snapshots.at(-1)).toBe('restore-failed')
+    expect(msal.loginRedirect).not.toHaveBeenCalled()
+    expect(msal.loginPopup).not.toHaveBeenCalled()
+  })
+
+  it('does not retry while offline and restores when connectivity returns', async () => {
+    const { rememberMicrosoftConnection } = await import('../db')
+    await rememberMicrosoftConnection('person@example.com')
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: false })
+    const onedrive = await import('../onedrive')
+    const snapshots: string[] = []
+    onedrive.subscribeAuth((snapshot) => snapshots.push(snapshot.status))
+    await vi.waitFor(() => expect(snapshots).toContain('reconnect-required'))
+
+    await expect(onedrive.retryAuthRestore()).resolves.toBe(false)
+    expect(msal.ssoSilent).not.toHaveBeenCalled()
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: true })
+    msal.ssoSilent.mockResolvedValue({ account: account() })
+    await expect(onedrive.retryAuthRestore()).resolves.toBe(true)
+    expect(msal.ssoSilent).toHaveBeenCalledOnce()
+  })
+
+  it('does not automatically retry a genuine authorization requirement', async () => {
+    const { rememberMicrosoftConnection } = await import('../db')
+    await rememberMicrosoftConnection('person@example.com')
+    const onedrive = await import('../onedrive')
+    const snapshots: string[] = []
+    onedrive.subscribeAuth((snapshot) => snapshots.push(snapshot.status))
+    await vi.waitFor(() => expect(snapshots).toContain('reconnect-required'))
+
+    await expect(onedrive.retryAuthRestore()).resolves.toBe(false)
+    expect(msal.ssoSilent).toHaveBeenCalledOnce()
+    expect(msal.loginRedirect).not.toHaveBeenCalled()
+    expect(msal.loginPopup).not.toHaveBeenCalled()
+  })
+
+  it('retains the account hint when explicitly reconnecting after restoration fails', async () => {
+    const { rememberMicrosoftConnection } = await import('../db')
+    await rememberMicrosoftConnection('person@example.com')
+    msal.ssoSilent.mockRejectedValue(new Error('network failed'))
+    const onedrive = await import('../onedrive')
+    const snapshots: string[] = []
+    onedrive.subscribeAuth((snapshot) => snapshots.push(snapshot.status))
+    await vi.waitFor(() => expect(snapshots).toContain('restore-failed'))
+
+    await onedrive.signIn()
+    expect(msal.loginRedirect).toHaveBeenCalledWith({
+      scopes: ['Files.ReadWrite.AppFolder'],
+      loginHint: 'person@example.com'
+    })
+  })
+
+  it('does not retry first-use or explicitly signed-out accounts', async () => {
+    const onedrive = await import('../onedrive')
+    const snapshots: string[] = []
+    onedrive.subscribeAuth((snapshot) => snapshots.push(snapshot.status))
+    await vi.waitFor(() => expect(snapshots).toContain('disconnected'))
+
+    await expect(onedrive.retryAuthRestore()).resolves.toBe(false)
+    await onedrive.signOut()
+    await expect(onedrive.retryAuthRestore()).resolves.toBe(false)
+    expect(msal.ssoSilent).not.toHaveBeenCalled()
+    expect(msal.loginRedirect).not.toHaveBeenCalled()
   })
 })

@@ -50,7 +50,10 @@ beforeEach(async () => {
   await db.microsoftAuthState.clear()
 })
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  Reflect.deleteProperty(document, 'visibilityState')
+})
 
 async function openSettings() {
   fireEvent.click(await screen.findByRole('button', { name: 'Settings' }))
@@ -85,7 +88,7 @@ describe('Microsoft cold-start UI', () => {
     render(<App />)
     await openSettings()
 
-    expect(screen.getByText(/browser session ended/i)).not.toBeNull()
+    expect(screen.getByText(/authorization needs to be renewed/i)).not.toBeNull()
     expect(screen.getAllByRole('button', { name: 'Reconnect Microsoft' }).length).toBeGreaterThan(0)
     expect(screen.queryByRole('button', { name: 'Sign in with Microsoft' })).toBeNull()
   })
@@ -155,13 +158,88 @@ describe('Microsoft cold-start UI', () => {
     expect(screen.getByText('Restoring Microsoft connection…')).not.toBeNull()
   })
 
+  it('offers silent retry with visible error details instead of claiming sign-out', async () => {
+    authMock.snapshot = { ready: true, status: 'restore-failed', error: 'network failed' }
+    render(<App />)
+    await openSettings()
+
+    expect(screen.getByText(/Could not restore Microsoft connection/)).not.toBeNull()
+    expect(screen.queryByRole('button', { name: 'Sign in with Microsoft' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Show details' }))
+    expect(screen.getByText('network failed')).not.toBeNull()
+    fireEvent.click(screen.getAllByRole('button', { name: 'Retry' })[0])
+    await waitFor(() => expect(authMock.retryAuthRestore).toHaveBeenCalledOnce())
+    expect(authMock.signIn).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reconnect Microsoft' }))
+    await waitFor(() => expect(authMock.signIn).toHaveBeenCalledOnce())
+  })
+
+  it('silently restores on foreground resume and resumes normal sync', async () => {
+    authMock.snapshot = { ready: true, status: 'restore-failed', error: 'network failed' }
+    authMock.retryAuthRestore.mockImplementation(async () => {
+      authMock.listener?.({
+        ready: true,
+        status: 'connected',
+        account: {
+          homeAccountId: 'home-account',
+          environment: 'login.microsoftonline.com',
+          tenantId: 'tenant',
+          username: 'person@example.com',
+          localAccountId: 'local-account'
+        }
+      })
+      return true
+    })
+    render(<App />)
+    await openSettings()
+
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+    fireEvent(document, new Event('visibilitychange'))
+    expect(authMock.retryAuthRestore).not.toHaveBeenCalled()
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+    fireEvent(document, new Event('visibilitychange'))
+
+    await waitFor(() => expect(authMock.retryAuthRestore).toHaveBeenCalledOnce())
+    await waitFor(() => expect(authMock.synchronize).toHaveBeenCalledOnce())
+    expect(authMock.signIn).not.toHaveBeenCalled()
+    expect(screen.queryByText(/Could not restore Microsoft connection/)).toBeNull()
+  })
+
+  it('disables retry and reconnect while a failed restoration is offline', async () => {
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: false })
+    authMock.snapshot = { ready: true, status: 'restore-failed', error: 'network failed' }
+    render(<App />)
+    await openSettings()
+
+    expect(screen.getByText(/You’re offline/)).not.toBeNull()
+    for (const button of [
+      ...screen.getAllByRole('button', { name: 'Retry' }),
+      screen.getByRole('button', { name: 'Reconnect Microsoft' })
+    ]) {
+      expect(button.hasAttribute('disabled')).toBe(true)
+    }
+    expect(authMock.signIn).not.toHaveBeenCalled()
+  })
+
+  it('renders localized retryable restoration copy', async () => {
+    await db.settings.put({ key: 'settings', locale: 'zh-CN', theme: 'system', colorTheme: 'vitalOrange' })
+    authMock.snapshot = { ready: true, status: 'restore-failed', error: 'network failed' }
+    render(<App />)
+    fireEvent.click(await screen.findByRole('button', { name: '设置' }))
+
+    expect(screen.getByText(/无法恢复 Microsoft 连接，请先重试/)).not.toBeNull()
+    expect(screen.getAllByRole('button', { name: '重试' }).length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: '重新连接 Microsoft' })).not.toBeNull()
+  })
+
   it('renders localized reconnect copy', async () => {
     await db.settings.put({ key: 'settings', locale: 'zh-CN', theme: 'system', colorTheme: 'vitalOrange' })
     authMock.snapshot = { ready: true, status: 'reconnect-required' }
     render(<App />)
     fireEvent.click(await screen.findByRole('button', { name: '设置' }))
 
-    expect(screen.getByText(/浏览器登录会话已结束/)).not.toBeNull()
+    expect(screen.getByText(/Microsoft 授权需要更新/)).not.toBeNull()
     expect(screen.getAllByRole('button', { name: '重新连接 Microsoft' }).length).toBeGreaterThan(0)
   })
 })

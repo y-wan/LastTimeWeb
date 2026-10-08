@@ -83,7 +83,9 @@ Chrome and Edge 148 and newer can read localized manifest members directly. For 
 
 Data stays in this device's IndexedDB while signed out. To synchronize devices, sign in with the same personal or organizational Microsoft account on each device. The app uses only the account's private OneDrive App Folder and the delegated `Files.ReadWrite.AppFolder` permission; it does not request access to the rest of OneDrive. An organizational tenant may require administrator consent.
 
-If the Microsoft session expires in the iPhone Home Screen app, choose **Reconnect Microsoft** there. Authorization navigates the current page instead of opening a popup; after the login returns to the app, automatic sync resumes. Background sync never opens an authorization popup on iPhone. Keep the app installed and do not clear its website data while local changes are waiting to sync.
+If Microsoft connection restoration fails, choose **Retry** before signing in again. The app also makes one silent restoration attempt when it returns to the foreground or connectivity returns; it does not loop or redirect automatically. Error details remain available, and **Reconnect Microsoft** is available if the problem persists or Microsoft requires renewed authorization. In the iPhone Home Screen app, reconnection navigates the current page instead of opening a popup; after the login returns to the app, automatic sync resumes.
+
+MSAL's local-storage cache may not survive a browser-session restart unless you choose **Keep me signed in** when Microsoft offers it. Browser privacy restrictions and Microsoft's token lifetimes can still require reconnection. Background sync never opens an authorization popup on iPhone. Keep the app installed and do not clear its website data while local changes are waiting to sync.
 
 Sync runs while the app is open: at startup, foreground resume, local changes/imports, manual retry, and network restoration. Reliable closed-app/background sync is not claimed or required.
 

@@ -134,7 +134,10 @@ export function subscribeAuth(listener: (snapshot: AuthSnapshot) => void) {
 }
 
 export async function retryAuthRestore() {
-  if (authSnapshot.status !== 'reconnect-required' || !authSnapshot.offline) {
+  if (!navigator.onLine || (
+    authSnapshot.status !== 'restore-failed' &&
+    !(authSnapshot.status === 'reconnect-required' && authSnapshot.offline)
+  )) {
     return authSnapshot.status === 'connected'
   }
   initialization = undefined
@@ -154,7 +157,7 @@ export async function signIn() {
     client: instance,
     store: authStateStore,
     scopes,
-    reconnecting: authSnapshot.status === 'reconnect-required',
+    reconnecting: authSnapshot.status === 'reconnect-required' || authSnapshot.status === 'restore-failed',
     redirect: isIosStandalonePwa()
   })
   if (!account) return undefined

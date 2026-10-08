@@ -9,7 +9,7 @@ import {
 import { selectAccount } from './auth'
 import type { MicrosoftAuthStateRecord } from './types'
 
-export type AuthStatus = 'checking' | 'restoring' | 'connected' | 'disconnected' | 'reconnect-required' | 'error'
+export type AuthStatus = 'checking' | 'restoring' | 'connected' | 'disconnected' | 'reconnect-required' | 'restore-failed' | 'error'
 
 export interface AuthSnapshot {
   ready: boolean
@@ -105,8 +105,12 @@ export async function initializeMicrosoftSession(input: {
     client.setActiveAccount(result.account)
     await rememberAccount(store, result.account)
     return { ready: true, status: 'connected', account: result.account }
-  } catch {
-    return { ready: true, status: 'reconnect-required' }
+  } catch (error) {
+    return {
+      ready: true,
+      status: error instanceof InteractionRequiredAuthError ? 'reconnect-required' : 'restore-failed',
+      error: errorMessage(error)
+    }
   }
 }
 
