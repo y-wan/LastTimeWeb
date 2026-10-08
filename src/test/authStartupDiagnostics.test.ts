@@ -24,7 +24,7 @@ function fixture() {
   return {
     values, storage, environment,
     advance: (duration: number) => { time += duration },
-    trace: () => new AuthStartupDiagnostics('1.0.10', environment)
+    trace: () => new AuthStartupDiagnostics('1.0.11', environment)
   }
 }
 
@@ -45,7 +45,7 @@ describe('device-local startup diagnostics', () => {
       msalKeyCookieAtStart: true,
       cachedAccountBeforeRedirectHandling: null,
       cacheCounts: { encrypted: null, expiredEncrypted: null, unencrypted: null },
-      silentMethod: null, silentFailure: null, persistence: 'available'
+      silentMethod: null, silentFailure: null, automaticRecoverySkipReason: null, persistence: 'available'
     })
     expect(JSON.stringify(report)).not.toContain('private')
     expect(test.values.size).toBe(1)
@@ -57,6 +57,15 @@ describe('device-local startup diagnostics', () => {
     const trace = test.trace()
     test.environment.cookie = () => 'msal.cache.encryption=new-key'
     expect(JSON.parse(trace.finish('connected')).msalKeyCookieAtStart).toBe(false)
+  })
+
+  it('retains the first recovery blocker rather than replacing it with a later failure', () => {
+    const trace = fixture().trace()
+    trace.recordRecoverySkip('user-interaction')
+    trace.recordRecoverySkip('recovery-start-failed')
+    const serialized = trace.finish('reconnect-required')
+    expect(JSON.parse(serialized).automaticRecoverySkipReason).toBe('user-interaction')
+    expect(serialized).not.toContain('private')
   })
 
   it('selects only valid initialization counters, never full performance events', () => {
@@ -102,7 +111,7 @@ describe('device-local startup diagnostics', () => {
     const client = new PublicClientApplication({
       ...config, telemetry: { client: new BrowserPerformanceClient(config) }
     })
-    const trace = new AuthStartupDiagnostics('1.0.10')
+    const trace = new AuthStartupDiagnostics('1.0.11')
     const observedFields: string[][] = []
     const callback = client.addPerformanceCallback((events) => {
       observedFields.push(...events.map((event) => Object.keys(event)))
@@ -262,7 +271,9 @@ describe('device-local startup diagnostics', () => {
 
   it('reprojects a stored pending record instead of copying extra secret fields', () => {
     const test = fixture()
-    test.trace().beforeNavigation()
+    const originating = test.trace()
+    originating.recordRecoverySkip('startup-ineligible')
+    originating.beforeNavigation()
     const pending = JSON.parse(test.values.get(AUTH_STARTUP_PENDING_KEY)!)
     pending.report.accessToken = 'private-token'
     pending.report.cookie = 'private-cookie'
@@ -271,8 +282,43 @@ describe('device-local startup diagnostics', () => {
     test.values.set(AUTH_STARTUP_PENDING_KEY, JSON.stringify(pending))
     const trace = test.trace()
     trace.confirmAutomaticReturn()
-    expect(trace.finish('connected')).not.toContain('private')
+    const serialized = trace.finish('connected')
+    expect(JSON.parse(serialized).beforeRedirect.automaticRecoverySkipReason).toBe('startup-ineligible')
+    expect(serialized).not.toContain('private')
   })
+
+  it('accepts a legacy pending report while keeping its absent reason unknown', () => {
+    const test = fixture()
+    test.trace().beforeNavigation()
+    const pending = JSON.parse(test.values.get(AUTH_STARTUP_PENDING_KEY)!)
+    pending.report.appVersion = '1.0.10'
+    delete pending.report.automaticRecoverySkipReason
+    test.values.set(AUTH_STARTUP_PENDING_KEY, JSON.stringify(pending))
+    const trace = test.trace()
+    trace.confirmAutomaticReturn()
+    expect(JSON.parse(trace.finish('connected')).beforeRedirect).toMatchObject({
+      appVersion: '1.0.10', automaticRecoverySkipReason: null
+    })
+    expect(console.warn).not.toHaveBeenCalled()
+  })
+
+  it.each(['private-token', 17, { accountId: 'private-account' }])(
+    'discards a pending report containing a non-allowlisted recovery reason', (reason) => {
+      const test = fixture()
+      test.trace().beforeNavigation()
+      const pending = JSON.parse(test.values.get(AUTH_STARTUP_PENDING_KEY)!)
+      pending.report.automaticRecoverySkipReason = reason
+      test.values.set(AUTH_STARTUP_PENDING_KEY, JSON.stringify(pending))
+      const trace = test.trace()
+      trace.confirmAutomaticReturn()
+      const serialized = trace.finish('connected')
+      expect(JSON.parse(serialized).beforeRedirect).toBeUndefined()
+      expect(test.values.has(AUTH_STARTUP_PENDING_KEY)).toBe(false)
+      expect(console.warn).toHaveBeenCalledWith('Invalid pending startup diagnostics were discarded.')
+      expect(serialized).not.toContain('private')
+      expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain('private')
+    }
+  )
 
   it.each(['{invalid', JSON.stringify({ navigationAt: 1000, report: { accessToken: 'private-token' } }), 'x'.repeat(20_001)])(
     'discards malformed pending storage with an explicit, sanitized warning', (serialized) => {

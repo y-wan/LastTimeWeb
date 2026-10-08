@@ -15,15 +15,19 @@ beforeEach(async () => {
 
 describe('local Microsoft recovery privacy', () => {
   it('keeps both completed and pending startup diagnostics out of OneDrive and CSV data', async () => {
-    const trace = new AuthStartupDiagnostics('1.0.10')
+    const trace = new AuthStartupDiagnostics('1.0.11')
     trace.recordCachedAccount(true)
+    trace.recordRecoverySkip('previous-attempt')
     trace.finish('connected')
     trace.beforeNavigation()
     expect(localStorage.getItem(AUTH_STARTUP_REPORT_KEY)).not.toBeNull()
     expect(localStorage.getItem(AUTH_STARTUP_PENDING_KEY)).not.toBeNull()
     const serialized = JSON.stringify(await localDocument())
     const portable = exportCsv([], [])
-    for (const field of ['startupDiagnostics', 'cacheCounts', 'msalKeyCookieAtStart', 'cachedAccountBeforeRedirectHandling', 'stagesMs']) {
+    for (const field of [
+      'startupDiagnostics', 'cacheCounts', 'msalKeyCookieAtStart',
+      'cachedAccountBeforeRedirectHandling', 'stagesMs', 'automaticRecoverySkipReason', 'previous-attempt'
+    ]) {
       expect(serialized).not.toContain(field)
       expect(portable).not.toContain(field)
     }

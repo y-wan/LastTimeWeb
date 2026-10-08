@@ -8,7 +8,18 @@ const OUTCOMES = ['pending', 'connected', 'reconnect-required', 'restore-failed'
 const REDIRECTS = ['not-attempted', 'started', 'returned', 'cancelled'] as const
 const SILENT_METHODS = ['acquireTokenSilent', 'ssoSilent'] as const
 const FAILURES = ['interaction_required', 'login_required', 'consent_required', 'network_error', 'timeout', 'other'] as const
+const RECOVERY_SKIP_REASONS = [
+  'silent-error-not-interactive', 'offline', 'startup-not-requested',
+  'not-initial-startup', 'initially-hidden', 'initially-offline',
+  'currently-hidden', 'currently-offline', 'user-interaction',
+  'visibility-hidden', 'visibility-visible', 'page-hidden',
+  'connectivity-changed', 'startup-ineligible', 'redirect-result-present',
+  'previous-attempt', 'missing-login-hint', 'guard-claim-denied',
+  'recovery-start-failed', 'redirect-callback-error',
+  'missing-recovery-state', 'account-mismatch', 'startup-error'
+] as const
 
+export type RecoverySkipReason = typeof RECOVERY_SKIP_REASONS[number]
 type SilentMethod = typeof SILENT_METHODS[number]
 type SilentFailure = typeof FAILURES[number]
 type TimingStage = 'initialize' | 'redirectResult' | 'silent'
@@ -27,6 +38,7 @@ export interface AuthStartupReport {
   silentMethod: SilentMethod | null
   silentFailure: SilentFailure | null
   automaticRedirect: typeof REDIRECTS[number]
+  automaticRecoverySkipReason: RecoverySkipReason | null
   outcome: typeof OUTCOMES[number]
   stagesMs: {
     initialize: number | null
@@ -67,6 +79,8 @@ function isMetric(value: unknown): value is number | null {
 }
 
 function projectReport(value: unknown): AuthStartupReport | undefined {
+  const skipReason = isRecord(value) ? value.automaticRecoverySkipReason ?? null : null
+  if (skipReason !== null && !isChoice(skipReason, RECOVERY_SKIP_REASONS)) return undefined
   if (!isRecord(value) || value.schema !== 1 ||
     typeof value.appVersion !== 'string' || !/^\d{1,5}\.\d{1,5}\.\d{1,5}$/.test(value.appVersion) ||
     !isFlag(value.msalKeyCookieAtStart) || !isFlag(value.cachedAccountBeforeRedirectHandling) ||
@@ -89,6 +103,7 @@ function projectReport(value: unknown): AuthStartupReport | undefined {
     silentMethod: value.silentMethod,
     silentFailure: value.silentFailure,
     automaticRedirect: value.automaticRedirect,
+    automaticRecoverySkipReason: skipReason,
     outcome: value.outcome,
     stagesMs: {
       initialize: stages.initialize, redirectResult: stages.redirectResult, silent: stages.silent,
@@ -130,6 +145,7 @@ export class AuthStartupDiagnostics {
       msalKeyCookieAtStart: null, cachedAccountBeforeRedirectHandling: null,
       cacheCounts: { encrypted: null, expiredEncrypted: null, unencrypted: null },
       silentMethod: null, silentFailure: null, automaticRedirect: 'not-attempted', outcome: 'pending',
+      automaticRecoverySkipReason: null,
       stagesMs: { initialize: null, redirectResult: null, silent: null, redirectRoundTrip: null, returnedAuthProcessing: null },
       persistence: 'available'
     }
@@ -206,6 +222,14 @@ export class AuthStartupDiagnostics {
 
   recordCachedAccount(present: boolean) {
     this.report.cachedAccountBeforeRedirectHandling = present
+  }
+
+  recordRecoverySkip(reason: RecoverySkipReason) {
+    if (!isChoice(reason, RECOVERY_SKIP_REASONS)) {
+      console.warn('Unrecognized automatic recovery skip reason was discarded.')
+      return
+    }
+    this.report.automaticRecoverySkipReason ??= reason
   }
 
   recordPerformance(events: readonly unknown[]) {
