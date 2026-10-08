@@ -392,8 +392,15 @@ export default function App() {
     const retryWhenOnline = () => {
       void retryAuthRestore()
     }
+    const retryWhenVisible = () => {
+      if (document.visibilityState === 'visible') void retryAuthRestore()
+    }
     window.addEventListener('online', retryWhenOnline)
-    return () => window.removeEventListener('online', retryWhenOnline)
+    document.addEventListener('visibilitychange', retryWhenVisible)
+    return () => {
+      window.removeEventListener('online', retryWhenOnline)
+      document.removeEventListener('visibilitychange', retryWhenVisible)
+    }
   }, [])
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)')
@@ -573,8 +580,11 @@ export default function App() {
         <div><h1>{t('appName')}</h1><p>{t('subtitle')}</p></div>
         <div className="sync-control" data-status={syncStatus}>
           <SyncBadge status={syncStatus} t={t} />
-          {syncStatus === 'deviceOnly' && isSyncConfigured() && <button className="sync-cta" disabled={auth.offline} onClick={() => void connectMicrosoft()}>
-            {auth.status === 'reconnect-required' ? t('reconnectMicrosoft') : t('signIn')}
+          {syncStatus === 'deviceOnly' && isSyncConfigured() && <button className="sync-cta" disabled={auth.offline || sync.state === 'offline'} onClick={() => {
+            if (auth.status === 'restore-failed') void retryAuthRestore()
+            else void connectMicrosoft()
+          }}>
+            {auth.status === 'restore-failed' ? t('retry') : auth.status === 'reconnect-required' ? t('reconnectMicrosoft') : t('signIn')}
           </button>}
         </div>
       </header>}
@@ -627,6 +637,9 @@ export default function App() {
                 t={t}
               />
               <div className="settings-actions"><button className="primary" disabled={sync.state === 'syncing' || sync.state === 'offline'} onClick={() => void sync.runUser()}>{sync.state === 'syncing' ? t('syncing') : sync.state === 'error' ? t('retry') : t('syncNow')}</button><button className="secondary" onClick={() => void disconnectMicrosoft()}>{t('signOut')}</button></div>
+            </> : auth.status === 'restore-failed' ? <>
+              <p>{sync.state === 'offline' ? t('reconnectMicrosoftOffline') : t('restoreMicrosoftFailed')}</p>
+              <div className="settings-actions"><button className="primary" disabled={sync.state === 'offline'} onClick={() => void retryAuthRestore()}>{t('retry')}</button><button className="secondary" disabled={sync.state === 'offline'} onClick={() => void connectMicrosoft()}>{t('reconnectMicrosoft')}</button></div>
             </> : auth.status === 'reconnect-required' ? <>
               <p>{auth.offline ? t('reconnectMicrosoftOffline') : t('reconnectMicrosoftBody')}</p>
               <button className="primary wide" disabled={auth.offline} onClick={() => void connectMicrosoft()}>{t('reconnectMicrosoft')}</button>
