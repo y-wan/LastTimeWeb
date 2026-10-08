@@ -1,6 +1,7 @@
 import { BrowserCacheLocation, BrowserPerformanceClient, PublicClientApplication, type AccountInfo, type Configuration } from '@azure/msal-browser'
 import packageMetadata from '../package.json'
 import { AuthStartupDiagnostics, clearAuthStartupDiagnostics, type RecoverySkipReason } from './authStartupDiagnostics'
+import { persistSuccessfulAuthBaseline } from './authCacheEvidence'
 import { isIphoneStandalonePwa, isIosStandalonePwa, resolveCommonAuthority, rootRedirectUri, selectAccount } from './auth'
 import {
   acquireMicrosoftToken,
@@ -143,6 +144,9 @@ async function initialize(allowColdStartRecovery = false) {
           diagnostics,
           online: navigator.onLine,
           onRestoring: () => publishAuth({ ready: false, status: 'restoring' }),
+          ...(iphone && !diagnostics ? {
+            onSilentAuthSuccess: () => persistSuccessfulAuthBaseline(packageMetadata.version)
+          } : {}),
           ...(iphone ? {
             coldStartRecovery: {
               canRedirect: () => recoveryAllowed && navigator.onLine &&
@@ -273,13 +277,15 @@ export async function signOut() {
 async function token(account: AccountInfo) {
   const instance = await initialize()
   if (!instance) throw new Error('MSAL is not configured')
-  return acquireMicrosoftToken({
+  const accessToken = await acquireMicrosoftToken({
     client: instance,
     account,
     scopes,
     redirectOnInteraction: isIosStandalonePwa(),
     onReconnectRequired: () => publishAuth({ ready: true, status: 'reconnect-required' })
   })
+  if (isIphoneStandalonePwa()) persistSuccessfulAuthBaseline(packageMetadata.version)
+  return accessToken
 }
 
 export async function localDocument(): Promise<SyncDocument> {

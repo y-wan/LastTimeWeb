@@ -1,4 +1,11 @@
 import { PerformanceEvents } from '@azure/msal-browser'
+import {
+  AUTH_STARTUP_BASELINE_KEY,
+  observeAuthCache,
+  projectAuthCacheEvidence,
+  projectSuccessfulAuthBaseline,
+  type AuthCacheEvidence
+} from './authCacheEvidence'
 
 export const AUTH_STARTUP_REPORT_KEY = 'last-time-auth-startup-report'
 export const AUTH_STARTUP_PENDING_KEY = 'last-time-auth-startup-pending'
@@ -30,6 +37,8 @@ export interface AuthStartupReport {
   appVersion: string
   msalKeyCookieAtStart: boolean | null
   cachedAccountBeforeRedirectHandling: boolean | null
+  usableAccountCountAfterRedirectHandling: number | null
+  cacheEvidence: AuthCacheEvidence | null
   cacheCounts: {
     encrypted: number | null
     expiredEncrypted: number | null
@@ -81,6 +90,11 @@ function isMetric(value: unknown): value is number | null {
 function projectReport(value: unknown): AuthStartupReport | undefined {
   const skipReason = isRecord(value) ? value.automaticRecoverySkipReason ?? null : null
   if (skipReason !== null && !isChoice(skipReason, RECOVERY_SKIP_REASONS)) return undefined
+  const usableAccountCount = isRecord(value) ? value.usableAccountCountAfterRedirectHandling ?? null : null
+  if (!isMetric(usableAccountCount)) return undefined
+  const cacheEvidence = isRecord(value) && value.cacheEvidence != null
+    ? projectAuthCacheEvidence(value.cacheEvidence) : null
+  if (cacheEvidence === undefined) return undefined
   if (!isRecord(value) || value.schema !== 1 ||
     typeof value.appVersion !== 'string' || !/^\d{1,5}\.\d{1,5}\.\d{1,5}$/.test(value.appVersion) ||
     !isFlag(value.msalKeyCookieAtStart) || !isFlag(value.cachedAccountBeforeRedirectHandling) ||
@@ -99,6 +113,8 @@ function projectReport(value: unknown): AuthStartupReport | undefined {
     appVersion: value.appVersion,
     msalKeyCookieAtStart: value.msalKeyCookieAtStart,
     cachedAccountBeforeRedirectHandling: value.cachedAccountBeforeRedirectHandling,
+    usableAccountCountAfterRedirectHandling: usableAccountCount,
+    cacheEvidence,
     cacheCounts: { encrypted: counts.encrypted, expiredEncrypted: counts.expiredEncrypted, unencrypted: counts.unencrypted },
     silentMethod: value.silentMethod,
     silentFailure: value.silentFailure,
@@ -126,7 +142,10 @@ export function clearAuthStartupDiagnostics(pendingOnly = false, storage: () => 
   try {
     const target = storage()
     target.removeItem(AUTH_STARTUP_PENDING_KEY)
-    if (!pendingOnly) target.removeItem(AUTH_STARTUP_REPORT_KEY)
+    if (!pendingOnly) {
+      target.removeItem(AUTH_STARTUP_REPORT_KEY)
+      target.removeItem(AUTH_STARTUP_BASELINE_KEY)
+    }
   } catch {
     console.warn('Unable to clear local startup diagnostics.')
   }
@@ -138,11 +157,14 @@ export class AuthStartupDiagnostics {
   private readonly invalidStages = new Set<TimingStage>()
   private pending?: { navigationAt: number; report: AuthStartupReport }
   private beforeRedirect?: AuthStartupReport
+  private silentSucceeded = false
 
   constructor(appVersion: string, private readonly environment: DiagnosticEnvironment = browserEnvironment) {
     this.report = {
       schema: 1, appVersion,
       msalKeyCookieAtStart: null, cachedAccountBeforeRedirectHandling: null,
+      usableAccountCountAfterRedirectHandling: null,
+      cacheEvidence: { lastSuccessfulAuth: null, beforeInitialize: null, afterInitialize: null },
       cacheCounts: { encrypted: null, expiredEncrypted: null, unencrypted: null },
       silentMethod: null, silentFailure: null, automaticRedirect: 'not-attempted', outcome: 'pending',
       automaticRecoverySkipReason: null,
@@ -157,6 +179,47 @@ export class AuthStartupDiagnostics {
       console.warn('Unable to read MSAL startup cookie presence.')
     }
     this.readPending()
+    this.readSuccessfulBaseline()
+  }
+
+  private readSuccessfulBaseline() {
+    let serialized: string | null
+    try {
+      serialized = this.environment.storage().getItem(AUTH_STARTUP_BASELINE_KEY)
+    } catch {
+      this.report.persistence = 'unavailable'
+      console.warn('Unable to read the local successful authorization baseline.')
+      return
+    }
+    if (serialized === null) return
+    let value: unknown
+    try {
+      if (serialized.length > 20_000) throw new Error('Oversized authorization baseline')
+      value = JSON.parse(serialized)
+    } catch {
+      console.warn('Invalid successful authorization baseline was discarded.')
+      this.store(AUTH_STARTUP_BASELINE_KEY)
+      return
+    }
+    const baseline = projectSuccessfulAuthBaseline(value)
+    if (!baseline) {
+      console.warn('Invalid successful authorization baseline was discarded.')
+      this.store(AUTH_STARTUP_BASELINE_KEY)
+      return
+    }
+    if (this.report.cacheEvidence) this.report.cacheEvidence.lastSuccessfulAuth = baseline
+  }
+
+  recordCacheEvidence(stage: 'beforeInitialize' | 'afterInitialize') {
+    if (this.report.cacheEvidence) this.report.cacheEvidence[stage] = observeAuthCache(this.environment)
+  }
+
+  recordUsableAccountCount(count: number) {
+    if (!isMetric(count)) {
+      console.warn('The usable MSAL account count is unavailable.')
+      return
+    }
+    this.report.usableAccountCountAfterRedirectHandling = count
   }
 
   private timestamp() {
@@ -250,9 +313,14 @@ export class AuthStartupDiagnostics {
     const startedAt = this.timestamp()
     if (method) this.report.silentMethod = method
     try {
-      return await operation()
+      const result = await operation()
+      if (stage === 'silent') this.silentSucceeded = true
+      return result
     } catch (error) {
-      if (stage === 'silent') this.report.silentFailure = failureCode(error)
+      if (stage === 'silent') {
+        this.silentSucceeded = false
+        this.report.silentFailure = failureCode(error)
+      }
       throw error
     } finally {
       const duration = this.elapsed(startedAt)
@@ -288,6 +356,13 @@ export class AuthStartupDiagnostics {
 
   finish(outcome: AuthStartupReport['outcome']) {
     this.report.outcome = outcome
+    if (outcome === 'connected' && this.silentSucceeded) {
+      this.store(AUTH_STARTUP_BASELINE_KEY, JSON.stringify({
+        schema: 1,
+        appVersion: this.report.appVersion,
+        cache: observeAuthCache(this.environment)
+      }))
+    }
     if (this.report.automaticRedirect === 'returned') {
       this.report.stagesMs.returnedAuthProcessing = this.elapsed(this.startedAt)
     }

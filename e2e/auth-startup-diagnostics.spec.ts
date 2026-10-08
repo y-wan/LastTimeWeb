@@ -2,8 +2,29 @@ import { expect, test } from '@playwright/test'
 import { translations } from '../src/i18n'
 
 const report = JSON.stringify({
-  schema: 1, appVersion: '1.0.11',
+  schema: 1, appVersion: '1.0.12',
   msalKeyCookieAtStart: true, cachedAccountBeforeRedirectHandling: false,
+  usableAccountCountAfterRedirectHandling: 1,
+  cacheEvidence: {
+    lastSuccessfulAuth: {
+      schema: 1, appVersion: '1.0.12',
+      cache: {
+        cookieState: 'recognized', accountIndexState: 'recognized', legacyAccountIndexPresent: false,
+        accountReferences: 1, presentEntries: 1, missingEntries: 0, encryptedEntries: 1,
+        matchingKeyEntries: 1, differentKeyEntries: 0, unrecognizedEntries: 0
+      }
+    },
+    beforeInitialize: {
+      cookieState: 'absent', accountIndexState: 'recognized', legacyAccountIndexPresent: false,
+      accountReferences: 1, presentEntries: 1, missingEntries: 0, encryptedEntries: 1,
+      matchingKeyEntries: null, differentKeyEntries: null, unrecognizedEntries: 0
+    },
+    afterInitialize: {
+      cookieState: 'recognized', accountIndexState: 'absent', legacyAccountIndexPresent: false,
+      accountReferences: 0, presentEntries: 0, missingEntries: 0, encryptedEntries: 0,
+      matchingKeyEntries: 0, differentKeyEntries: 0, unrecognizedEntries: 0
+    }
+  },
   cacheCounts: { encrypted: null, expiredEncrypted: null, unencrypted: null },
   silentMethod: 'acquireTokenSilent', silentFailure: null,
   automaticRedirect: 'returned', automaticRecoverySkipReason: null, outcome: 'connected',
