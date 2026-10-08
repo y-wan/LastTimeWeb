@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { db } from '../db'
 import { localDocument } from '../onedrive'
+import { exportCsv } from '../csv'
 
 beforeEach(async () => {
   await db.events.clear()
@@ -14,13 +15,20 @@ describe('local Microsoft recovery privacy', () => {
     await db.microsoftAuthState.put({
       key: 'microsoft',
       connectedBefore: true,
-      loginHint: 'private-person@example.com'
+      loginHint: 'private-person@example.com',
+      coldStartRecovery: { homeAccountId: 'private-recovery-account' }
     })
 
     const serialized = JSON.stringify(await localDocument())
     expect(serialized).not.toContain('private-person@example.com')
     expect(serialized).not.toContain('connectedBefore')
+    expect(serialized).not.toContain('coldStartRecovery')
+    expect(serialized).not.toContain('private-recovery-account')
     expect(Object.keys(JSON.parse(serialized))).toEqual(['version', 'updatedAt', 'events', 'occurrences'])
+    const portable = exportCsv([], [])
+    expect(portable).not.toContain('private-person@example.com')
+    expect(portable).not.toContain('coldStartRecovery')
+    expect(portable).not.toContain('private-recovery-account')
   })
 
   it('projects durable pending undo intents as tombstones in the sync snapshot', async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { accountIdentity, COMMON_AUTHORITY, isIosStandalonePwa, resolveCommonAuthority, rootRedirectUri, selectAccount } from '../auth'
+import { accountIdentity, COMMON_AUTHORITY, isIphoneStandalonePwa, isIosStandalonePwa, resolveCommonAuthority, rootRedirectUri, selectAccount } from '../auth'
 
 describe('Microsoft account restoration', () => {
   it('prefers redirect, then active, then cached accounts', () => {
@@ -32,5 +32,17 @@ describe('Microsoft account restoration', () => {
     expect(isIosStandalonePwa({ standalone: true })).toBe(true)
     expect(isIosStandalonePwa({ standalone: false })).toBe(false)
     expect(isIosStandalonePwa({})).toBe(false)
+  })
+
+  it('limits automatic recovery to an installed iPhone app', () => {
+    expect(isIphoneStandalonePwa({ standalone: true, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)' })).toBe(true)
+    for (const browser of [
+      { standalone: false, userAgent: 'iPhone' },
+      { userAgent: 'iPhone' },
+      { standalone: true, userAgent: 'iPad' },
+      { standalone: true, userAgent: 'Macintosh' },
+      { standalone: true, userAgent: 'Android' },
+      { standalone: true }
+    ]) expect(isIphoneStandalonePwa(browser)).toBe(false)
   })
 })
