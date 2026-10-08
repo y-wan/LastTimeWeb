@@ -1,5 +1,5 @@
 import { BrowserCacheLocation, PublicClientApplication, type AccountInfo, type Configuration } from '@azure/msal-browser'
-import { isIosStandalonePwa, resolveCommonAuthority, rootRedirectUri, selectAccount } from './auth'
+import { isIphoneStandalonePwa, isIosStandalonePwa, resolveCommonAuthority, rootRedirectUri, selectAccount } from './auth'
 import {
   acquireMicrosoftToken,
   initializeMicrosoftSession,
@@ -9,6 +9,8 @@ import {
   type MicrosoftAuthStateStore
 } from './authSession'
 import {
+  claimMicrosoftColdStartRecovery,
+  clearMicrosoftColdStartRecovery,
   db,
   forgetMicrosoftConnection,
   nowIso,
@@ -35,13 +37,16 @@ const fileUrl = 'https://graph.microsoft.com/v1.0/me/drive/special/approot:/last
 
 let msal: PublicClientApplication | undefined
 let initialization: Promise<PublicClientApplication | undefined> | undefined
+let initialSession = true
 
 export type { AuthSnapshot } from './authSession'
 
 const authStateStore: MicrosoftAuthStateStore = {
   read: readMicrosoftAuthState,
   remember: rememberMicrosoftConnection,
-  forget: forgetMicrosoftConnection
+  forget: forgetMicrosoftConnection,
+  claimColdStartRecovery: claimMicrosoftColdStartRecovery,
+  clearColdStartRecovery: clearMicrosoftColdStartRecovery
 }
 
 let authSnapshot: AuthSnapshot = clientId
@@ -75,18 +80,40 @@ function getMsal() {
   return msal
 }
 
-async function initialize() {
+async function initialize(allowColdStartRecovery = false) {
   const instance = getMsal()
   if (!instance) return undefined
   if (!initialization) {
+    const firstLoad = initialSession
+    initialSession = false
     const attempt = (async () => {
+      const iphone = isIphoneStandalonePwa()
+      let recoveryAllowed = iphone && firstLoad && allowColdStartRecovery &&
+        navigator.onLine && document.visibilityState === 'visible'
+      const cancelRecovery = () => { recoveryAllowed = false }
+      const cancellationEvents: Array<[EventTarget, string]> = [
+        [document, 'pointerdown'], [document, 'keydown'], [document, 'input'],
+        [document, 'click'], [document, 'visibilitychange'],
+        [window, 'pagehide'], [window, 'online'], [window, 'offline']
+      ]
+      if (recoveryAllowed) {
+        for (const [target, event] of cancellationEvents) {
+          target.addEventListener(event, cancelRecovery, { capture: true, passive: true })
+        }
+      }
       try {
         const snapshot = await initializeMicrosoftSession({
           client: instance,
           store: authStateStore,
           scopes,
           online: navigator.onLine,
-          onRestoring: () => publishAuth({ ready: false, status: 'restoring' })
+          onRestoring: () => publishAuth({ ready: false, status: 'restoring' }),
+          ...(iphone ? {
+            coldStartRecovery: {
+              canRedirect: () => recoveryAllowed && navigator.onLine &&
+                document.visibilityState === 'visible'
+            }
+          } : {})
         })
         publishAuth(snapshot)
         return instance
@@ -94,6 +121,10 @@ async function initialize() {
         const message = error instanceof Error ? error.message : String(error)
         publishAuth({ ready: true, status: 'error', error: message })
         throw error
+      } finally {
+        for (const [target, event] of cancellationEvents) {
+          target.removeEventListener(event, cancelRecovery, true)
+        }
       }
     })()
     initialization = attempt.catch((error) => {
@@ -111,7 +142,7 @@ export function isSyncConfigured() {
 export async function currentAccount() {
   const instance = await initialize()
   if (!instance) return undefined
-  if (authSnapshot.status === 'reconnect-required') return undefined
+  if (authSnapshot.status !== 'connected') return undefined
   const account = selectAccount(undefined, instance.getActiveAccount(), instance.getAllAccounts())
   if (account && instance.getActiveAccount()?.homeAccountId !== account.homeAccountId) {
     instance.setActiveAccount(account)
@@ -125,7 +156,7 @@ export async function currentAccount() {
 export function subscribeAuth(listener: (snapshot: AuthSnapshot) => void) {
   authListeners.add(listener)
   listener(authSnapshot)
-  void initialize().catch(() => {
+  void initialize(true).catch(() => {
     // initialize publishes the actionable error before rejecting.
   })
   return () => {

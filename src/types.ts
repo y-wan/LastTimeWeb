@@ -47,6 +47,7 @@ export interface MicrosoftAuthStateRecord {
   key: 'microsoft'
   connectedBefore: true
   loginHint?: string
+  coldStartRecovery?: { homeAccountId?: string }
 }
 
 export interface SyncMetaRecord {

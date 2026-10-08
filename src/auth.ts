@@ -38,3 +38,9 @@ export function rootRedirectUri(origin: string) {
 export function isIosStandalonePwa(browser: Navigator | { standalone?: boolean } = navigator) {
   return 'standalone' in browser && browser.standalone === true
 }
+
+export function isIphoneStandalonePwa(
+  browser: Navigator | { standalone?: boolean; userAgent?: string } = navigator
+) {
+  return isIosStandalonePwa(browser) && /iPhone/i.test(browser.userAgent ?? '')
+}

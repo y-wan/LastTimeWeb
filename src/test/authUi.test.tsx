@@ -60,6 +60,20 @@ async function openSettings() {
 }
 
 describe('Microsoft cold-start UI', () => {
+  it('keeps local event creation available during pending recovery without starting sync', async () => {
+    authMock.snapshot = { ready: false, status: 'restoring' }
+    render(<App />)
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Add item' }))[0])
+    fireEvent.change(screen.getByRole('textbox', { name: 'Name' }), { target: { value: 'Local while restoring' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(async () => {
+      expect(await db.events.filter((event) => event.name === 'Local while restoring').count()).toBe(1)
+    })
+    expect(authMock.synchronize).not.toHaveBeenCalled()
+    expect(authMock.signIn).not.toHaveBeenCalled()
+  })
+
   it('continues normal automatic sync after silent restoration connects an account', async () => {
     authMock.snapshot = {
       ready: true,

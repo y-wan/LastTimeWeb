@@ -19,9 +19,9 @@ export interface AuthSnapshot {
   offline?: boolean
 }
 
-export interface MicrosoftAuthClient {
+export interface MicrosoftAuthClient extends Pick<MicrosoftTokenClient, 'acquireTokenSilent'> {
   initialize(): Promise<void>
-  handleRedirectPromise(): Promise<{ account: AccountInfo } | null>
+  handleRedirectPromise(): Promise<{ account: AccountInfo; state?: string } | null>
   getActiveAccount(): AccountInfo | null
   getAllAccounts(): AccountInfo[]
   setActiveAccount(account: AccountInfo | null): void
@@ -35,6 +35,8 @@ export interface MicrosoftAuthStateStore {
   read(): Promise<MicrosoftAuthStateRecord | undefined>
   remember(loginHint?: string): Promise<unknown>
   forget(): Promise<unknown>
+  claimColdStartRecovery(loginHint: string, homeAccountId?: string): Promise<boolean>
+  clearColdStartRecovery(): Promise<unknown>
 }
 
 export interface MicrosoftTokenClient {
@@ -50,42 +52,121 @@ async function rememberAccount(store: MicrosoftAuthStateStore, account: AccountI
   await store.remember(account.username || undefined)
 }
 
+const COLD_START_RECOVERY_STATE = 'last-time-cold-start-recovery'
+
 export async function initializeMicrosoftSession(input: {
   client: MicrosoftAuthClient
   store: MicrosoftAuthStateStore
   scopes: string[]
   online: boolean
   onRestoring?: () => void
+  coldStartRecovery?: { canRedirect: () => boolean }
 }): Promise<AuthSnapshot> {
-  const { client, store, scopes, online, onRestoring } = input
+  const { client, store, scopes, online, onRestoring, coldStartRecovery } = input
   await client.initialize()
 
-  let redirectAccount: AccountInfo | null | undefined
+  const priorConnection = await store.read()
+  let redirectResult: { account: AccountInfo; state?: string } | null = null
   let redirectError: unknown
   try {
-    redirectAccount = (await client.handleRedirectPromise())?.account
+    redirectResult = await client.handleRedirectPromise()
   } catch (error) {
     redirectError = error
   }
 
-  const account = selectAccount(redirectAccount, client.getActiveAccount(), client.getAllAccounts())
-  if (account) {
-    client.setActiveAccount(account)
-    await rememberAccount(store, account)
-    return {
-      ready: true,
-      status: 'connected',
-      account,
-      ...(redirectError ? { error: errorMessage(redirectError) } : {})
-    }
-  }
+  const account = selectAccount(redirectResult?.account, client.getActiveAccount(), client.getAllAccounts())
 
-  const priorConnection = await store.read()
-  if (redirectError) {
+  if (redirectError && (coldStartRecovery || !account)) {
     return {
       ready: true,
       status: priorConnection ? 'reconnect-required' : 'error',
       error: errorMessage(redirectError)
+    }
+  }
+  if (redirectResult?.state === COLD_START_RECOVERY_STATE && !priorConnection?.coldStartRecovery) {
+    client.setActiveAccount(null)
+    return {
+      ready: true,
+      status: 'reconnect-required',
+      error: 'Microsoft recovery state is unavailable. Reconnect explicitly.'
+    }
+  }
+
+  async function finishRestoration(restored: AccountInfo, verified = false): Promise<AuthSnapshot> {
+    const recovery = priorConnection?.coldStartRecovery
+    if (recovery && (recovery.homeAccountId
+      ? recovery.homeAccountId !== restored.homeAccountId
+      : !priorConnection?.loginHint ||
+        priorConnection.loginHint.trim().toLowerCase() !== restored.username.trim().toLowerCase())) {
+      client.setActiveAccount(null)
+      return {
+        ready: true,
+        status: 'reconnect-required',
+        error: 'Microsoft recovery returned a different account. Reconnect explicitly to choose an account.'
+      }
+    }
+    if (coldStartRecovery && online) {
+      await client.acquireTokenSilent({ account: restored, scopes })
+      verified = true
+    }
+    client.setActiveAccount(restored)
+    await rememberAccount(store, restored)
+    if (verified) await store.clearColdStartRecovery()
+    return {
+      ready: true,
+      status: 'connected',
+      account: restored,
+      ...(redirectError ? { error: errorMessage(redirectError) } : {})
+    }
+  }
+
+  async function restoreAfterFailure(error: unknown, expected?: AccountInfo): Promise<AuthSnapshot> {
+    const failed: AuthSnapshot = {
+      ready: true,
+      status: error instanceof InteractionRequiredAuthError ? 'reconnect-required' : 'restore-failed',
+      error: errorMessage(error)
+    }
+    if (!(error instanceof InteractionRequiredAuthError) ||
+      !online || !coldStartRecovery?.canRedirect() || redirectResult ||
+      priorConnection?.coldStartRecovery || !priorConnection?.loginHint) {
+      return failed
+    }
+    try {
+      if (!await store.claimColdStartRecovery(priorConnection.loginHint, expected?.homeAccountId) ||
+        !coldStartRecovery.canRedirect()) {
+        return failed
+      }
+      onRestoring?.()
+      await client.loginRedirect({
+        scopes,
+        prompt: 'none',
+        loginHint: priorConnection.loginHint,
+        ...(expected ? { account: expected } : {}),
+        state: COLD_START_RECOVERY_STATE,
+        onRedirectNavigate: () => {
+          if (!coldStartRecovery.canRedirect()) {
+            throw new Error('Automatic Microsoft recovery was cancelled because the app is no longer idle at startup.')
+          }
+          return true
+        }
+      })
+      return { ready: false, status: 'restoring' }
+    } catch (recoveryError) {
+      return {
+        ready: true,
+        status: 'reconnect-required',
+        error: `${errorMessage(error)}\nCold-start recovery failed: ${errorMessage(recoveryError)}`
+      }
+    }
+  }
+
+  if (account) {
+    if (coldStartRecovery && online) onRestoring?.()
+    try {
+      return await finishRestoration(account)
+    } catch (error) {
+      if (!coldStartRecovery) throw error
+      return restoreAfterFailure(error, account)
     }
   }
   if (!priorConnection) {
@@ -102,15 +183,9 @@ export async function initializeMicrosoftSession(input: {
       scopes,
       ...(priorConnection.loginHint ? { loginHint: priorConnection.loginHint } : {})
     })
-    client.setActiveAccount(result.account)
-    await rememberAccount(store, result.account)
-    return { ready: true, status: 'connected', account: result.account }
+    return await finishRestoration(result.account, true)
   } catch (error) {
-    return {
-      ready: true,
-      status: error instanceof InteractionRequiredAuthError ? 'reconnect-required' : 'restore-failed',
-      error: errorMessage(error)
-    }
+    return restoreAfterFailure(error)
   }
 }
 
@@ -122,6 +197,7 @@ export async function signInMicrosoft(input: {
   redirect?: boolean
 }) {
   const priorConnection = input.reconnecting ? await input.store.read() : undefined
+  await input.store.clearColdStartRecovery()
   const request: PopupRequest & RedirectRequest = priorConnection?.loginHint
     ? { scopes: input.scopes, loginHint: priorConnection.loginHint }
     : { scopes: input.scopes, prompt: 'select_account' }

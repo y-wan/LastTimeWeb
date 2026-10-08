@@ -51,10 +51,37 @@ export function readMicrosoftAuthState() {
 
 export function rememberMicrosoftConnection(loginHint?: string) {
   const normalizedHint = loginHint?.trim()
-  return db.microsoftAuthState.put({
-    key: 'microsoft',
-    connectedBefore: true,
-    ...(normalizedHint ? { loginHint: normalizedHint } : {})
+  return db.transaction('rw', db.microsoftAuthState, async () => {
+    const prior = await readMicrosoftAuthState()
+    await db.microsoftAuthState.put({
+      key: 'microsoft',
+      connectedBefore: true,
+      ...(normalizedHint ? { loginHint: normalizedHint } : {}),
+      ...(prior?.coldStartRecovery ? { coldStartRecovery: prior.coldStartRecovery } : {})
+    })
+  })
+}
+
+export function claimMicrosoftColdStartRecovery(loginHint: string, homeAccountId?: string) {
+  return db.transaction('rw', db.microsoftAuthState, async () => {
+    const prior = await readMicrosoftAuthState()
+    if (!prior?.loginHint || prior.coldStartRecovery ||
+      prior.loginHint.trim().toLowerCase() !== loginHint.trim().toLowerCase()) {
+      return false
+    }
+    await db.microsoftAuthState.update('microsoft', {
+      coldStartRecovery: homeAccountId ? { homeAccountId } : {}
+    })
+    return true
+  })
+}
+
+export function clearMicrosoftColdStartRecovery() {
+  return db.transaction('rw', db.microsoftAuthState, async () => {
+    const prior = await readMicrosoftAuthState()
+    if (!prior?.coldStartRecovery) return
+    delete prior.coldStartRecovery
+    await db.microsoftAuthState.put(prior)
   })
 }
 
