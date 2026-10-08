@@ -253,7 +253,15 @@ describe('Microsoft cold-start UI', () => {
     ['zh-CN', '设置', '启动诊断', '查看详情', '复制详情', '已复制']
   ] as const)('keeps %s startup diagnostics collapsed and copies only its report', async (locale, settings, title, details, copy, copied) => {
     await db.settings.put({ key: 'settings', locale, theme: 'light', colorTheme: 'vitalOrange' })
-    const report = JSON.stringify({ schema: 1, outcome: 'connected', stagesMs: { redirectRoundTrip: 2345 } })
+    const report = JSON.stringify({
+      schema: 1, outcome: 'connected', stagesMs: { redirectRoundTrip: 2345 },
+      usableAccountCountAfterRedirectHandling: 1,
+      cacheEvidence: {
+        lastSuccessfulAuth: null,
+        beforeInitialize: { cookieState: 'recognized', accountReferences: 1, matchingKeyEntries: 1 },
+        afterInitialize: { cookieState: 'recognized', accountReferences: 1, matchingKeyEntries: 1 }
+      }
+    })
     authMock.snapshot = { ready: true, status: 'disconnected', startupDiagnostics: report }
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })

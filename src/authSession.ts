@@ -62,6 +62,7 @@ export async function initializeMicrosoftSession(input: {
   scopes: string[]
   online: boolean
   onRestoring?: () => void
+  onSilentAuthSuccess?: () => void
   coldStartRecovery?: {
     canRedirect: () => boolean
     getBlockReason?: () => RecoverySkipReason
@@ -71,14 +72,9 @@ export async function initializeMicrosoftSession(input: {
   const { client, store, scopes, online, onRestoring, coldStartRecovery, diagnostics } = input
   const measure = <T>(stage: 'initialize' | 'redirectResult' | 'silent', operation: () => Promise<T>, method?: 'acquireTokenSilent' | 'ssoSilent') =>
     diagnostics ? diagnostics.measure(stage, operation, method) : operation()
+  diagnostics?.recordCacheEvidence('beforeInitialize')
   await measure('initialize', () => client.initialize())
-  if (diagnostics) {
-    try {
-      diagnostics.recordCachedAccount(client.getAllAccounts().length > 0)
-    } catch {
-      console.warn('Unable to observe the cached MSAL account at startup.')
-    }
-  }
+  diagnostics?.recordCacheEvidence('afterInitialize')
 
   const priorConnection = await store.read()
   let redirectResult: { account: AccountInfo; state?: string } | null = null
@@ -89,7 +85,10 @@ export async function initializeMicrosoftSession(input: {
     redirectError = error
   }
 
-  const account = selectAccount(redirectResult?.account, client.getActiveAccount(), client.getAllAccounts())
+  const activeAccount = client.getActiveAccount()
+  const cachedAccounts = client.getAllAccounts()
+  diagnostics?.recordUsableAccountCount(cachedAccounts.length)
+  const account = selectAccount(redirectResult?.account, activeAccount, cachedAccounts)
 
   if (redirectError && (coldStartRecovery || !account)) {
     diagnostics?.recordRecoverySkip('redirect-callback-error')
@@ -132,7 +131,10 @@ export async function initializeMicrosoftSession(input: {
     }
     client.setActiveAccount(restored)
     await rememberAccount(store, restored)
-    if (verified) await store.clearColdStartRecovery()
+    if (verified) {
+      await store.clearColdStartRecovery()
+      input.onSilentAuthSuccess?.()
+    }
     return {
       ready: true,
       status: 'connected',

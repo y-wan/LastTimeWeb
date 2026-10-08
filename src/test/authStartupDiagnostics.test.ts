@@ -1,6 +1,7 @@
 import { BrowserCacheLocation, BrowserPerformanceClient, InteractionRequiredAuthError, PublicClientApplication, type Configuration } from '@azure/msal-browser'
 import { webcrypto } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { AUTH_STARTUP_BASELINE_KEY } from '../authCacheEvidence'
 import {
   AUTH_STARTUP_PENDING_KEY,
   AUTH_STARTUP_REPORT_KEY,
@@ -24,7 +25,7 @@ function fixture() {
   return {
     values, storage, environment,
     advance: (duration: number) => { time += duration },
-    trace: () => new AuthStartupDiagnostics('1.0.11', environment)
+    trace: () => new AuthStartupDiagnostics('1.0.12', environment)
   }
 }
 
@@ -87,7 +88,7 @@ describe('device-local startup diagnostics', () => {
     expect(report).not.toContain('99')
   })
 
-  it('observes an expired encryption key through the installed MSAL client, without network or raw artifacts', async () => {
+  it('observes cache removal for an encryption-ID mismatch without claiming token expiry', async () => {
     vi.stubGlobal('crypto', webcrypto)
     vi.stubGlobal('BroadcastChannel', class extends EventTarget {
       postMessage = vi.fn()
@@ -111,7 +112,8 @@ describe('device-local startup diagnostics', () => {
     const client = new PublicClientApplication({
       ...config, telemetry: { client: new BrowserPerformanceClient(config) }
     })
-    const trace = new AuthStartupDiagnostics('1.0.11')
+    const trace = new AuthStartupDiagnostics('1.0.12')
+    trace.recordCacheEvidence('beforeInitialize')
     const observedFields: string[][] = []
     const callback = client.addPerformanceCallback((events) => {
       observedFields.push(...events.map((event) => Object.keys(event)))
@@ -119,6 +121,7 @@ describe('device-local startup diagnostics', () => {
     })
     try {
       await trace.measure('initialize', () => client.initialize())
+      trace.recordCacheEvidence('afterInitialize')
       trace.recordCachedAccount(client.getAllAccounts().length > 0)
       expect(localStorage.getItem('expired-test-account')).toBeNull()
       expect(observedFields).toContainEqual(expect.arrayContaining(['encryptedCacheExpiredCount']))
@@ -126,6 +129,13 @@ describe('device-local startup diagnostics', () => {
       expect(JSON.parse(serialized)).toMatchObject({
         msalKeyCookieAtStart: false, cachedAccountBeforeRedirectHandling: false,
         cacheCounts: { expiredEncrypted: 1 }
+      })
+      expect(JSON.parse(serialized).cacheEvidence).toMatchObject({
+        beforeInitialize: {
+          cookieState: 'absent', accountReferences: 1, presentEntries: 1,
+          encryptedEntries: 1, matchingKeyEntries: null, differentKeyEntries: null
+        },
+        afterInitialize: { accountIndexState: 'absent', accountReferences: 0, presentEntries: 0 }
       })
       expect(serialized).not.toContain('private')
       expect(serialized).not.toContain('expired-test-account')
@@ -344,4 +354,88 @@ describe('device-local startup diagnostics', () => {
     expect(report).not.toContain('private')
     expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain('private')
   })
+
+  it('retains one successful silent-auth baseline without replacing it after offline, failed or pending startup', async () => {
+    const test = fixture()
+    const successful = test.trace()
+    successful.recordCacheEvidence('beforeInitialize')
+    successful.recordCacheEvidence('afterInitialize')
+    await successful.measure('silent', async () => 'private-token', 'acquireTokenSilent')
+    const current = JSON.parse(successful.finish('connected'))
+    expect(current.cacheEvidence.lastSuccessfulAuth).toBeNull()
+    const retained = test.values.get(AUTH_STARTUP_BASELINE_KEY)
+    expect(retained).toBeDefined()
+    expect(retained).not.toContain('private')
+    const next = test.trace()
+    next.recordCacheEvidence('beforeInitialize')
+    expect(JSON.parse(next.finish('reconnect-required')).cacheEvidence.lastSuccessfulAuth)
+      .toMatchObject({ schema: 1, appVersion: '1.0.12' })
+    test.trace().finish('connected')
+    const failed = test.trace()
+    await expect(failed.measure('silent', async () => { throw new Error('private-error') }, 'ssoSilent')).rejects.toThrow()
+    failed.finish('restore-failed')
+    const pending = test.trace()
+    await pending.measure('silent', async () => 'private-token', 'ssoSilent')
+    pending.finish('pending')
+    expect(test.values.get(AUTH_STARTUP_BASELINE_KEY)).toBe(retained)
+    pending.beforeNavigation()
+    expect([...test.values.keys()].sort())
+      .toEqual([AUTH_STARTUP_BASELINE_KEY, AUTH_STARTUP_REPORT_KEY, AUTH_STARTUP_PENDING_KEY].sort())
+    clearAuthStartupDiagnostics(true, test.environment.storage)
+    expect(test.values.get(AUTH_STARTUP_BASELINE_KEY)).toBe(retained)
+    clearAuthStartupDiagnostics(false, test.environment.storage)
+    expect(test.values.size).toBe(0)
+  })
+
+  it('projects baseline and pending evidence instead of recopying injected secrets', async () => {
+    const test = fixture()
+    const successful = test.trace()
+    await successful.measure('silent', async () => 'private-token', 'ssoSilent')
+    successful.finish('connected')
+    const baseline = JSON.parse(test.values.get(AUTH_STARTUP_BASELINE_KEY)!)
+    baseline.accountId = 'private-account'
+    baseline.cache.id = 'private-id'
+    baseline.cache.cookie = 'private-cookie'
+    test.values.set(AUTH_STARTUP_BASELINE_KEY, JSON.stringify(baseline))
+    const first = test.trace()
+    first.recordCacheEvidence('beforeInitialize')
+    first.beforeNavigation()
+    const pending = JSON.parse(test.values.get(AUTH_STARTUP_PENDING_KEY)!)
+    pending.report.cacheEvidence.beforeInitialize.key = 'private-key'
+    pending.report.cacheEvidence.lastSuccessfulAuth.accessToken = 'private-token'
+    test.values.set(AUTH_STARTUP_PENDING_KEY, JSON.stringify(pending))
+    const callback = test.trace()
+    callback.confirmAutomaticReturn()
+    const serialized = callback.finish('connected')
+    expect(JSON.parse(serialized).beforeRedirect.cacheEvidence.lastSuccessfulAuth).toBeDefined()
+    expect(serialized).not.toContain('private')
+    expect(test.values.get(AUTH_STARTUP_REPORT_KEY)).not.toContain('private')
+    expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain('private')
+  })
+
+  it('accepts legacy pending reports without cache evidence or a post-redirect account count', () => {
+    const test = fixture()
+    test.trace().beforeNavigation()
+    const pending = JSON.parse(test.values.get(AUTH_STARTUP_PENDING_KEY)!)
+    pending.report.appVersion = '1.0.11'
+    delete pending.report.cacheEvidence
+    delete pending.report.usableAccountCountAfterRedirectHandling
+    test.values.set(AUTH_STARTUP_PENDING_KEY, JSON.stringify(pending))
+    const callback = test.trace()
+    callback.confirmAutomaticReturn()
+    expect(JSON.parse(callback.finish('connected')).beforeRedirect).toMatchObject({
+      appVersion: '1.0.11', cacheEvidence: null, usableAccountCountAfterRedirectHandling: null
+    })
+  })
+
+  it.each(['{private-invalid', JSON.stringify({ schema: 1, accessToken: 'private-token' }), 'x'.repeat(20_001)])(
+    'discards an invalid baseline without exposing its contents', (value) => {
+      const test = fixture()
+      test.values.set(AUTH_STARTUP_BASELINE_KEY, value)
+      expect(JSON.parse(test.trace().finish('disconnected')).cacheEvidence.lastSuccessfulAuth).toBeNull()
+      expect(test.values.has(AUTH_STARTUP_BASELINE_KEY)).toBe(false)
+      expect(console.warn).toHaveBeenCalledWith('Invalid successful authorization baseline was discarded.')
+      expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain('private')
+    }
+  )
 })

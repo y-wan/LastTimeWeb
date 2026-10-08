@@ -572,6 +572,32 @@ describe('installed iPhone Microsoft authorization', () => {
   })
 
   describe('startup diagnostics integration', () => {
+    it('refreshes the silent-auth baseline after foreground restoration and token success even if sync later fails', async () => {
+      const { AUTH_STARTUP_BASELINE_KEY } = await import('../authCacheEvidence')
+      const { rememberMicrosoftConnection } = await import('../db')
+      await rememberMicrosoftConnection('person@example.com')
+      msal.ssoSilent.mockRejectedValueOnce(new Error('network failed'))
+      const { onedrive } = await observeAuth()
+      await onedrive.currentAccount()
+      expect(localStorage.getItem(AUTH_STARTUP_BASELINE_KEY)).toBeNull()
+      msal.ssoSilent.mockResolvedValueOnce({ account: account() })
+      await expect(onedrive.retryAuthRestore()).resolves.toBe(true)
+      expect(JSON.parse(localStorage.getItem(AUTH_STARTUP_BASELINE_KEY)!)).toMatchObject({
+        schema: 1, appVersion: '1.0.12'
+      })
+      localStorage.removeItem(AUTH_STARTUP_BASELINE_KEY)
+      vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('private-sync-network-error'))
+      await expect(onedrive.synchronize()).rejects.toThrow('private-sync-network-error')
+      expect(JSON.parse(localStorage.getItem(AUTH_STARTUP_BASELINE_KEY)!)).toMatchObject({
+        schema: 1, appVersion: '1.0.12'
+      })
+      expect(localStorage.getItem(AUTH_STARTUP_BASELINE_KEY)).not.toContain('private')
+      localStorage.removeItem(AUTH_STARTUP_BASELINE_KEY)
+      msal.acquireTokenSilent.mockRejectedValue(new InteractionRequiredAuthError('interaction_required'))
+      await expect(onedrive.synchronize()).rejects.toBeInstanceOf(InteractionRequiredAuthError)
+      expect(localStorage.getItem(AUTH_STARTUP_BASELINE_KEY)).toBeNull()
+    })
+
     it('observes initialization counts and missing cached account before navigation without secrets', async () => {
       const { rememberMicrosoftConnection } = await import('../db')
       await rememberMicrosoftConnection('person@example.com')
@@ -593,7 +619,8 @@ describe('installed iPhone Microsoft authorization', () => {
       const serialized = snapshots.at(-1)?.startupDiagnostics
       expect(serialized).toBeDefined()
       expect(JSON.parse(serialized!)).toMatchObject({
-        msalKeyCookieAtStart: false, cachedAccountBeforeRedirectHandling: false,
+        msalKeyCookieAtStart: false, cachedAccountBeforeRedirectHandling: null,
+        usableAccountCountAfterRedirectHandling: 0,
         cacheCounts: { encrypted: null, expiredEncrypted: 3, unencrypted: 0 },
         silentMethod: 'ssoSilent', silentFailure: 'interaction_required', automaticRedirect: 'started',
         automaticRecoverySkipReason: null
@@ -618,7 +645,7 @@ describe('installed iPhone Microsoft authorization', () => {
       expect(await callback.onedrive.currentAccount()).toEqual(account())
       expect(JSON.parse(callback.snapshots.at(-1)!.startupDiagnostics!)).toMatchObject({
         outcome: 'connected', automaticRedirect: 'returned',
-        beforeRedirect: { silentFailure: 'interaction_required', cachedAccountBeforeRedirectHandling: false }
+        beforeRedirect: { silentFailure: 'interaction_required', usableAccountCountAfterRedirectHandling: 0 }
       })
       expect(localStorage.getItem('last-time-auth-startup-pending')).toBeNull()
       expect(localStorage.getItem('last-time-auth-startup-report')).not.toBeNull()
@@ -632,7 +659,7 @@ describe('installed iPhone Microsoft authorization', () => {
       const initial = await observeAuth()
       await initial.onedrive.currentAccount()
       expect(JSON.parse(initial.snapshots.at(-1)!.startupDiagnostics!)).toMatchObject({
-        cachedAccountBeforeRedirectHandling: true, silentMethod: 'acquireTokenSilent', silentFailure: 'interaction_required'
+        usableAccountCountAfterRedirectHandling: 1, silentMethod: 'acquireTokenSilent', silentFailure: 'interaction_required'
       })
       vi.resetModules()
       msal.initialize.mockRejectedValueOnce(new Error('initialization failed'))
@@ -676,19 +703,25 @@ describe('installed iPhone Microsoft authorization', () => {
       expect(msal.loginRedirect).not.toHaveBeenCalled()
     })
 
-    it('does not block authorization when performance observation or the diagnostic cache read fails', async () => {
+    it('does not block authorization when performance observation or raw cache observation fails', async () => {
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
       msal.addPerformanceCallback.mockImplementationOnce(() => { throw new Error('private-observer-error') })
-      msal.getAllAccounts.mockImplementationOnce(() => { throw new Error('private-cache-observation-error') })
-        .mockReturnValue([account()])
+      msal.getAllAccounts.mockReturnValue([account()])
+      const getItem = Storage.prototype.getItem
+      vi.spyOn(Storage.prototype, 'getItem').mockImplementation(function (this: Storage, key) {
+        if (key === 'msal.2.account.keys') throw new Error('private-cache-observation-error')
+        return getItem.call(this, key)
+      })
       const { onedrive, snapshots } = await observeAuth()
       expect(await onedrive.currentAccount()).toEqual(account())
       expect(JSON.parse(snapshots.at(-1)!.startupDiagnostics!)).toMatchObject({
         outcome: 'connected', cachedAccountBeforeRedirectHandling: null,
+        usableAccountCountAfterRedirectHandling: 1,
+        cacheEvidence: { beforeInitialize: { accountIndexState: 'unavailable' } },
         cacheCounts: { encrypted: null, expiredEncrypted: null, unencrypted: null }
       })
       expect(warn).toHaveBeenCalledWith('Unable to observe MSAL startup performance.')
-      expect(warn).toHaveBeenCalledWith('Unable to observe the cached MSAL account at startup.')
+      expect(warn).toHaveBeenCalledWith('Unable to observe MSAL startup cache metadata.')
       expect(JSON.stringify(warn.mock.calls)).not.toContain('private')
       expect(msal.removePerformanceCallback).not.toHaveBeenCalled()
     })
@@ -711,6 +744,42 @@ describe('installed iPhone Microsoft authorization', () => {
       })
       expect(localStorage.getItem('last-time-auth-startup-pending')).toBeNull()
       expect(await store.readMicrosoftAuthState()).toHaveProperty('coldStartRecovery')
+    })
+
+    it('captures cache metadata around initialize without an extra SDK account read', async () => {
+      const cookie = encodeURIComponent(JSON.stringify({ id: 'private-key-id', key: 'private-key' }))
+      document.cookie = `msal.cache.encryption=${cookie}; path=/`
+      localStorage.setItem('msal.2.account.keys', JSON.stringify(['private-account-key']))
+      localStorage.setItem('private-account-key', JSON.stringify({
+        id: 'private-key-id', nonce: 'private-nonce', data: 'private-token'
+      }))
+      msal.initialize.mockImplementation(async () => {
+        expect(msal.getAllAccounts).not.toHaveBeenCalled()
+        localStorage.removeItem('private-account-key')
+        localStorage.removeItem('msal.2.account.keys')
+      })
+      const { onedrive, snapshots } = await observeAuth()
+      await onedrive.currentAccount()
+      expect(msal.getAllAccounts).toHaveBeenCalledOnce()
+      const report = snapshots.at(-1)!.startupDiagnostics!
+      expect(JSON.parse(report)).toMatchObject({
+        cachedAccountBeforeRedirectHandling: null, usableAccountCountAfterRedirectHandling: 0,
+        cacheEvidence: {
+          beforeInitialize: { accountReferences: 1, presentEntries: 1, matchingKeyEntries: 1 },
+          afterInitialize: { accountReferences: 0, presentEntries: 0 }
+        }
+      })
+      expect(report).not.toContain('private')
+    })
+
+    it('leaves the post-initialize observation unknown if initialize fails', async () => {
+      msal.initialize.mockRejectedValueOnce(new Error('private-initialize-error'))
+      const { snapshots } = await observeAuth()
+      await vi.waitFor(() => expect(snapshots.at(-1)?.status).toBe('error'))
+      expect(JSON.parse(snapshots.at(-1)!.startupDiagnostics!).cacheEvidence).toMatchObject({
+        beforeInitialize: { accountIndexState: 'absent' }, afterInitialize: null
+      })
+      expect(msal.getAllAccounts).not.toHaveBeenCalled()
     })
   })
 })
