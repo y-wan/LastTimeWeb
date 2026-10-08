@@ -1,4 +1,6 @@
-import { BrowserCacheLocation, PublicClientApplication, type AccountInfo, type Configuration } from '@azure/msal-browser'
+import { BrowserCacheLocation, BrowserPerformanceClient, PublicClientApplication, type AccountInfo, type Configuration } from '@azure/msal-browser'
+import packageMetadata from '../package.json'
+import { AuthStartupDiagnostics, clearAuthStartupDiagnostics } from './authStartupDiagnostics'
 import { isIphoneStandalonePwa, isIosStandalonePwa, resolveCommonAuthority, rootRedirectUri, selectAccount } from './auth'
 import {
   acquireMicrosoftToken,
@@ -53,10 +55,11 @@ let authSnapshot: AuthSnapshot = clientId
   ? { ready: false, status: 'checking' }
   : { ready: true, status: 'disconnected' }
 const authListeners = new Set<(snapshot: AuthSnapshot) => void>()
+let startupDiagnostics: string | undefined
 
 function publishAuth(snapshot: AuthSnapshot) {
-  authSnapshot = snapshot
-  for (const listener of authListeners) listener(snapshot)
+  authSnapshot = { ...snapshot, ...(startupDiagnostics ? { startupDiagnostics } : {}) }
+  for (const listener of authListeners) listener(authSnapshot)
 }
 
 function isAuthConnected() {
@@ -75,6 +78,13 @@ function getMsal() {
       },
       cache: { cacheLocation: BrowserCacheLocation.LocalStorage }
     }
+    if (isIphoneStandalonePwa()) {
+      try {
+        config.telemetry = { client: new BrowserPerformanceClient(config) }
+      } catch {
+        console.warn('Unable to enable local MSAL startup measurements.')
+      }
+    }
     msal = new PublicClientApplication(config)
   }
   return msal
@@ -88,6 +98,15 @@ async function initialize(allowColdStartRecovery = false) {
     initialSession = false
     const attempt = (async () => {
       const iphone = isIphoneStandalonePwa()
+      const diagnostics = iphone && firstLoad ? new AuthStartupDiagnostics(packageMetadata.version) : undefined
+      let performanceCallback: string | undefined
+      if (diagnostics) {
+        try {
+          performanceCallback = instance.addPerformanceCallback((events) => diagnostics.recordPerformance(events))
+        } catch {
+          console.warn('Unable to observe MSAL startup performance.')
+        }
+      }
       let recoveryAllowed = iphone && firstLoad && allowColdStartRecovery &&
         navigator.onLine && document.visibilityState === 'visible'
       const cancelRecovery = () => { recoveryAllowed = false }
@@ -106,6 +125,7 @@ async function initialize(allowColdStartRecovery = false) {
           client: instance,
           store: authStateStore,
           scopes,
+          diagnostics,
           online: navigator.onLine,
           onRestoring: () => publishAuth({ ready: false, status: 'restoring' }),
           ...(iphone ? {
@@ -115,13 +135,28 @@ async function initialize(allowColdStartRecovery = false) {
             }
           } : {})
         })
+        if (diagnostics) {
+          startupDiagnostics = diagnostics.finish(
+            snapshot.status === 'checking' || snapshot.status === 'restoring' ? 'pending' : snapshot.status
+          )
+        }
         publishAuth(snapshot)
         return instance
       } catch (error) {
+        if (diagnostics) startupDiagnostics = diagnostics.finish('error')
         const message = error instanceof Error ? error.message : String(error)
         publishAuth({ ready: true, status: 'error', error: message })
         throw error
       } finally {
+        if (performanceCallback !== undefined) {
+          try {
+            if (!instance.removePerformanceCallback(performanceCallback)) {
+              console.warn('The MSAL startup performance callback could not be removed.')
+            }
+          } catch {
+            console.warn('Unable to remove the MSAL startup performance callback.')
+          }
+        }
         for (const [target, event] of cancellationEvents) {
           target.removeEventListener(event, cancelRecovery, true)
         }
@@ -184,6 +219,7 @@ export async function retryAuthRestore() {
 export async function signIn() {
   const instance = await initialize()
   if (!instance) throw new Error('VITE_MS_CLIENT_ID is not configured')
+  clearAuthStartupDiagnostics(true)
   const account = await signInMicrosoft({
     client: instance,
     store: authStateStore,
@@ -206,6 +242,8 @@ export async function signOut() {
   } catch (error) {
     failure = error
   }
+  clearAuthStartupDiagnostics()
+  startupDiagnostics = undefined
   publishAuth({ ready: true, status: 'disconnected' })
   if (failure) throw failure
 }

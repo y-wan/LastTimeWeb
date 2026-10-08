@@ -1,4 +1,4 @@
-import { InteractionRequiredAuthError, type AccountInfo, type RedirectRequest } from '@azure/msal-browser'
+import { InteractionRequiredAuthError, type AccountInfo, type PublicClientApplication, type RedirectRequest } from '@azure/msal-browser'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AuthSnapshot } from '../authSession'
 
@@ -13,7 +13,9 @@ const msal = vi.hoisted(() => ({
   loginRedirect: vi.fn(),
   logoutPopup: vi.fn(),
   acquireTokenSilent: vi.fn(),
-  acquireTokenPopup: vi.fn()
+  acquireTokenPopup: vi.fn(),
+  addPerformanceCallback: vi.fn<PublicClientApplication['addPerformanceCallback']>(),
+  removePerformanceCallback: vi.fn<PublicClientApplication['removePerformanceCallback']>()
 }))
 
 vi.mock('@azure/msal-browser', async (importOriginal) => ({
@@ -56,6 +58,10 @@ beforeEach(async () => {
   ))
   msal.acquireTokenSilent.mockResolvedValue({ accessToken: 'test-token' })
   msal.loginRedirect.mockResolvedValue(undefined)
+  msal.addPerformanceCallback.mockReturnValue('startup-callback')
+  msal.removePerformanceCallback.mockReturnValue(true)
+  localStorage.clear()
+  document.cookie = 'msal.cache.encryption=; Max-Age=0; path=/'
   const { db } = await import('../db')
   await db.microsoftAuthState.clear()
 })
@@ -210,7 +216,7 @@ describe('installed iPhone Microsoft authorization', () => {
       }
       const { onedrive, snapshots } = await observeAuth()
       expect(await onedrive.currentAccount()).toBeUndefined()
-      expect(snapshots.at(-1)).toEqual({ ready: false, status: 'restoring' })
+      expect(snapshots.at(-1)).toMatchObject({ ready: false, status: 'restoring' })
       expect(snapshots.some((snapshot) => snapshot.status === 'connected')).toBe(false)
       expect(msal.loginRedirect).toHaveBeenCalledExactlyOnceWith({
         scopes: ['Files.ReadWrite.AppFolder'],
@@ -454,6 +460,8 @@ describe('installed iPhone Microsoft authorization', () => {
       expect(snapshots.at(-1)).toMatchObject({ status: 'reconnect-required' })
       expect(msal.loginRedirect).not.toHaveBeenCalled()
       expect(msal.acquireTokenSilent).not.toHaveBeenCalled()
+      expect(msal.addPerformanceCallback).not.toHaveBeenCalled()
+      expect(snapshots.at(-1)?.startupDiagnostics).toBeUndefined()
     })
 
     it('preserves desktop interactive token acquisition after startup', async () => {
@@ -495,5 +503,143 @@ describe('installed iPhone Microsoft authorization', () => {
     await expect(onedrive.retryAuthRestore()).resolves.toBe(false)
     expect(msal.ssoSilent).not.toHaveBeenCalled()
     expect(msal.loginRedirect).not.toHaveBeenCalled()
+  })
+
+  describe('startup diagnostics integration', () => {
+    it('observes initialization counts and missing cached account before navigation without secrets', async () => {
+      const { rememberMicrosoftConnection } = await import('../db')
+      await rememberMicrosoftConnection('person@example.com')
+      msal.initialize.mockImplementation(async () => {
+        const event = {
+          name: 'initializeClientApplication', eventId: 'private-event', status: 2 as const,
+          authority: 'private-authority', clientId: 'private-client', correlationId: 'private-correlation',
+          libraryName: 'msal.js.browser', libraryVersion: '4.30.0',
+          startTimeMs: 1000, encryptedCacheExpiredCount: 3, unencryptedCacheCount: 0
+        }
+        msal.addPerformanceCallback.mock.calls[0][0]([event])
+        document.cookie = 'msal.cache.encryption=private-key; path=/'
+      })
+      msal.loginRedirect.mockImplementation(async (request: RedirectRequest) => {
+        expect(request.onRedirectNavigate?.('https://login.microsoftonline.com/authorize')).toBe(true)
+      })
+      const { onedrive, snapshots } = await observeAuth()
+      await onedrive.currentAccount()
+      const serialized = snapshots.at(-1)?.startupDiagnostics
+      expect(serialized).toBeDefined()
+      expect(JSON.parse(serialized!)).toMatchObject({
+        msalKeyCookieAtStart: false, cachedAccountBeforeRedirectHandling: false,
+        cacheCounts: { encrypted: null, expiredEncrypted: 3, unencrypted: 0 },
+        silentMethod: 'ssoSilent', silentFailure: 'interaction_required', automaticRedirect: 'started'
+      })
+      expect(serialized).not.toContain('private')
+      expect(serialized).not.toContain('person@example.com')
+      expect(msal.removePerformanceCallback).toHaveBeenCalledExactlyOnceWith('startup-callback')
+      expect(localStorage.getItem('last-time-auth-startup-pending')).not.toBeNull()
+    })
+
+    it('retains the originating failure across a callback reload and keeps the verified account connected', async () => {
+      const { rememberMicrosoftConnection } = await import('../db')
+      await rememberMicrosoftConnection('person@example.com')
+      msal.loginRedirect.mockImplementation(async (request: RedirectRequest) => {
+        request.onRedirectNavigate?.('https://login.microsoftonline.com/authorize')
+      })
+      const initial = await observeAuth()
+      await initial.onedrive.currentAccount()
+      vi.resetModules()
+      msal.handleRedirectPromise.mockResolvedValueOnce({ account: account(), state: 'last-time-cold-start-recovery' })
+      const callback = await observeAuth()
+      expect(await callback.onedrive.currentAccount()).toEqual(account())
+      expect(JSON.parse(callback.snapshots.at(-1)!.startupDiagnostics!)).toMatchObject({
+        outcome: 'connected', automaticRedirect: 'returned',
+        beforeRedirect: { silentFailure: 'interaction_required', cachedAccountBeforeRedirectHandling: false }
+      })
+      expect(localStorage.getItem('last-time-auth-startup-pending')).toBeNull()
+      expect(localStorage.getItem('last-time-auth-startup-report')).not.toBeNull()
+      expect(msal.addPerformanceCallback).toHaveBeenCalledTimes(2)
+      expect(msal.removePerformanceCallback).toHaveBeenCalledTimes(2)
+    })
+
+    it('records cached token failures and removes callbacks after initialization errors', async () => {
+      msal.getAllAccounts.mockReturnValue([account()])
+      msal.acquireTokenSilent.mockRejectedValue(new InteractionRequiredAuthError('interaction_required'))
+      const initial = await observeAuth()
+      await initial.onedrive.currentAccount()
+      expect(JSON.parse(initial.snapshots.at(-1)!.startupDiagnostics!)).toMatchObject({
+        cachedAccountBeforeRedirectHandling: true, silentMethod: 'acquireTokenSilent', silentFailure: 'interaction_required'
+      })
+      vi.resetModules()
+      msal.initialize.mockRejectedValueOnce(new Error('initialization failed'))
+      const failure = await observeAuth()
+      await vi.waitFor(() => expect(failure.snapshots.at(-1)?.status).toBe('error'))
+      expect(JSON.parse(failure.snapshots.at(-1)!.startupDiagnostics!).outcome).toBe('error')
+      expect(msal.removePerformanceCallback).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not re-register diagnostics on foreground retries and clears them on explicit sign-out', async () => {
+      const { rememberMicrosoftConnection } = await import('../db')
+      await rememberMicrosoftConnection('person@example.com')
+      msal.ssoSilent.mockRejectedValueOnce(new Error('network failed'))
+      const { onedrive, snapshots } = await observeAuth()
+      await onedrive.currentAccount()
+      msal.ssoSilent.mockResolvedValueOnce({ account: account() })
+      await expect(onedrive.retryAuthRestore()).resolves.toBe(true)
+      expect(msal.addPerformanceCallback).toHaveBeenCalledOnce()
+      expect(snapshots.at(-1)?.startupDiagnostics).toBeDefined()
+      await onedrive.signOut()
+      expect(snapshots.at(-1)).toEqual({ ready: true, status: 'disconnected' })
+      expect(localStorage.getItem('last-time-auth-startup-report')).toBeNull()
+      expect(localStorage.getItem('last-time-auth-startup-pending')).toBeNull()
+    })
+
+    it('preserves successful silent authorization when diagnostic storage is unavailable', async () => {
+      msal.getAllAccounts.mockReturnValue([account()])
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('private-storage-error') })
+      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('private-storage-error') })
+      const { onedrive, snapshots } = await observeAuth()
+      expect(await onedrive.currentAccount()).toEqual(account())
+      expect(JSON.parse(snapshots.at(-1)!.startupDiagnostics!)).toMatchObject({
+        outcome: 'connected', persistence: 'unavailable'
+      })
+      expect(JSON.stringify(warn.mock.calls)).not.toContain('private-storage-error')
+      expect(msal.loginRedirect).not.toHaveBeenCalled()
+    })
+
+    it('does not block authorization when performance observation or the diagnostic cache read fails', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      msal.addPerformanceCallback.mockImplementationOnce(() => { throw new Error('private-observer-error') })
+      msal.getAllAccounts.mockImplementationOnce(() => { throw new Error('private-cache-observation-error') })
+        .mockReturnValue([account()])
+      const { onedrive, snapshots } = await observeAuth()
+      expect(await onedrive.currentAccount()).toEqual(account())
+      expect(JSON.parse(snapshots.at(-1)!.startupDiagnostics!)).toMatchObject({
+        outcome: 'connected', cachedAccountBeforeRedirectHandling: null,
+        cacheCounts: { encrypted: null, expiredEncrypted: null, unencrypted: null }
+      })
+      expect(warn).toHaveBeenCalledWith('Unable to observe MSAL startup performance.')
+      expect(warn).toHaveBeenCalledWith('Unable to observe the cached MSAL account at startup.')
+      expect(JSON.stringify(warn.mock.calls)).not.toContain('private')
+      expect(msal.removePerformanceCallback).not.toHaveBeenCalled()
+    })
+
+    it('rechecks idle eligibility after saving the pending diagnostic and keeps the loop guard', async () => {
+      const store = await import('../db')
+      await store.rememberMicrosoftConnection('person@example.com')
+      const originalSetItem = Storage.prototype.setItem
+      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key, value) {
+        originalSetItem.call(this, key, value)
+        if (key === 'last-time-auth-startup-pending') document.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+      msal.loginRedirect.mockImplementation(async (request: RedirectRequest) => {
+        request.onRedirectNavigate?.('https://login.microsoftonline.com/authorize')
+      })
+      const { onedrive, snapshots } = await observeAuth()
+      expect(await onedrive.currentAccount()).toBeUndefined()
+      expect(JSON.parse(snapshots.at(-1)!.startupDiagnostics!)).toMatchObject({
+        outcome: 'reconnect-required', automaticRedirect: 'cancelled'
+      })
+      expect(localStorage.getItem('last-time-auth-startup-pending')).toBeNull()
+      expect(await store.readMicrosoftAuthState()).toHaveProperty('coldStartRecovery')
+    })
   })
 })

@@ -7,6 +7,7 @@ import {
   type SsoSilentRequest
 } from '@azure/msal-browser'
 import { selectAccount } from './auth'
+import type { AuthStartupDiagnostics } from './authStartupDiagnostics'
 import type { MicrosoftAuthStateRecord } from './types'
 
 export type AuthStatus = 'checking' | 'restoring' | 'connected' | 'disconnected' | 'reconnect-required' | 'restore-failed' | 'error'
@@ -17,6 +18,7 @@ export interface AuthSnapshot {
   account?: AccountInfo
   error?: string
   offline?: boolean
+  startupDiagnostics?: string
 }
 
 export interface MicrosoftAuthClient extends Pick<MicrosoftTokenClient, 'acquireTokenSilent'> {
@@ -61,15 +63,25 @@ export async function initializeMicrosoftSession(input: {
   online: boolean
   onRestoring?: () => void
   coldStartRecovery?: { canRedirect: () => boolean }
+  diagnostics?: AuthStartupDiagnostics
 }): Promise<AuthSnapshot> {
-  const { client, store, scopes, online, onRestoring, coldStartRecovery } = input
-  await client.initialize()
+  const { client, store, scopes, online, onRestoring, coldStartRecovery, diagnostics } = input
+  const measure = <T>(stage: 'initialize' | 'redirectResult' | 'silent', operation: () => Promise<T>, method?: 'acquireTokenSilent' | 'ssoSilent') =>
+    diagnostics ? diagnostics.measure(stage, operation, method) : operation()
+  await measure('initialize', () => client.initialize())
+  if (diagnostics) {
+    try {
+      diagnostics.recordCachedAccount(client.getAllAccounts().length > 0)
+    } catch {
+      console.warn('Unable to observe the cached MSAL account at startup.')
+    }
+  }
 
   const priorConnection = await store.read()
   let redirectResult: { account: AccountInfo; state?: string } | null = null
   let redirectError: unknown
   try {
-    redirectResult = await client.handleRedirectPromise()
+    redirectResult = await measure('redirectResult', () => client.handleRedirectPromise())
   } catch (error) {
     redirectError = error
   }
@@ -91,6 +103,9 @@ export async function initializeMicrosoftSession(input: {
       error: 'Microsoft recovery state is unavailable. Reconnect explicitly.'
     }
   }
+  if (redirectResult?.state === COLD_START_RECOVERY_STATE && priorConnection?.coldStartRecovery) {
+    diagnostics?.confirmAutomaticReturn()
+  }
 
   async function finishRestoration(restored: AccountInfo, verified = false): Promise<AuthSnapshot> {
     const recovery = priorConnection?.coldStartRecovery
@@ -106,7 +121,7 @@ export async function initializeMicrosoftSession(input: {
       }
     }
     if (coldStartRecovery && online) {
-      await client.acquireTokenSilent({ account: restored, scopes })
+      await measure('silent', () => client.acquireTokenSilent({ account: restored, scopes }), 'acquireTokenSilent')
       verified = true
     }
     client.setActiveAccount(restored)
@@ -144,7 +159,9 @@ export async function initializeMicrosoftSession(input: {
         ...(expected ? { account: expected } : {}),
         state: COLD_START_RECOVERY_STATE,
         onRedirectNavigate: () => {
+          if (diagnostics && coldStartRecovery.canRedirect()) diagnostics.beforeNavigation()
           if (!coldStartRecovery.canRedirect()) {
+            diagnostics?.cancelNavigation()
             throw new Error('Automatic Microsoft recovery was cancelled because the app is no longer idle at startup.')
           }
           return true
@@ -152,6 +169,7 @@ export async function initializeMicrosoftSession(input: {
       })
       return { ready: false, status: 'restoring' }
     } catch (recoveryError) {
+      diagnostics?.cancelNavigation()
       return {
         ready: true,
         status: 'reconnect-required',
@@ -179,10 +197,10 @@ export async function initializeMicrosoftSession(input: {
 
   onRestoring?.()
   try {
-    const result = await client.ssoSilent({
+    const result = await measure('silent', () => client.ssoSilent({
       scopes,
       ...(priorConnection.loginHint ? { loginHint: priorConnection.loginHint } : {})
-    })
+    }), 'ssoSilent')
     return await finishRestoration(result.account, true)
   } catch (error) {
     return restoreAfterFailure(error)
