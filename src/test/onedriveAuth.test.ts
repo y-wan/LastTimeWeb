@@ -262,6 +262,8 @@ describe('installed iPhone Microsoft authorization', () => {
         const restarted = await observeAuth()
         await restarted.onedrive.currentAccount()
         expect(restarted.snapshots.at(-1)).toMatchObject({ status: 'reconnect-required' })
+        expect(JSON.parse(restarted.snapshots.at(-1)!.startupDiagnostics!).automaticRecoverySkipReason)
+          .toBe('previous-attempt')
       }
       expect(msal.loginRedirect).toHaveBeenCalledOnce()
     })
@@ -337,8 +339,18 @@ describe('installed iPhone Microsoft authorization', () => {
       expect(msal.loginRedirect).toHaveBeenCalledOnce()
     })
 
-    it.each(['pointerdown', 'keydown', 'input', 'click', 'visibilitychange', 'pagehide', 'online', 'offline'])(
-      'cancels startup redirect permanently after %s while SSO is pending', async (event) => {
+    it.each([
+      ['pointerdown', 'user-interaction'],
+      ['keydown', 'user-interaction'],
+      ['input', 'user-interaction'],
+      ['click', 'user-interaction'],
+      ['visibilitychange', 'visibility-hidden'],
+      ['visibility-visible', 'visibility-visible'],
+      ['pagehide', 'page-hidden'],
+      ['online', 'connectivity-changed'],
+      ['offline', 'connectivity-changed']
+    ])(
+      'cancels startup redirect permanently after %s while SSO is pending', async (event, reason) => {
         const { readMicrosoftAuthState, rememberMicrosoftConnection } = await import('../db')
         await rememberMicrosoftConnection('person@example.com')
         let rejectSilent!: (error: unknown) => void
@@ -351,6 +363,8 @@ describe('installed iPhone Microsoft authorization', () => {
           document.dispatchEvent(new Event(event))
           Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
           document.dispatchEvent(new Event(event))
+        } else if (event === 'visibility-visible') {
+          document.dispatchEvent(new Event('visibilitychange'))
         } else if (['pagehide', 'online', 'offline'].includes(event)) {
           window.dispatchEvent(new Event(event))
         } else {
@@ -359,6 +373,9 @@ describe('installed iPhone Microsoft authorization', () => {
         rejectSilent(new InteractionRequiredAuthError('interaction_required'))
         expect(await onedrive.currentAccount()).toBeUndefined()
         expect(snapshots.at(-1)).toMatchObject({ status: 'reconnect-required' })
+        expect(JSON.parse(snapshots.at(-1)!.startupDiagnostics!)).toMatchObject({
+          automaticRedirect: 'not-attempted', automaticRecoverySkipReason: reason
+        })
         expect(msal.loginRedirect).not.toHaveBeenCalled()
         expect(await readMicrosoftAuthState()).not.toHaveProperty('coldStartRecovery')
       }
@@ -375,6 +392,25 @@ describe('installed iPhone Microsoft authorization', () => {
       document.dispatchEvent(new Event('pointerdown', { bubbles: true }))
       rejectSilent(new InteractionRequiredAuthError('interaction_required'))
       expect(await onedrive.currentAccount()).toBeUndefined()
+      expect(msal.loginRedirect).not.toHaveBeenCalled()
+    })
+
+    it.each(['offline', 'hidden'])('observes the current %s gate even without a cancellation event', async (state) => {
+      const { rememberMicrosoftConnection } = await import('../db')
+      await rememberMicrosoftConnection('person@example.com')
+      let rejectSilent!: (error: unknown) => void
+      msal.ssoSilent.mockImplementation(() => new Promise((_resolve, reject) => { rejectSilent = reject }))
+      const { onedrive, snapshots } = await observeAuth()
+      await vi.waitFor(() => expect(msal.ssoSilent).toHaveBeenCalledOnce())
+      if (state === 'offline') {
+        Object.defineProperty(navigator, 'onLine', { configurable: true, value: false })
+      } else {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+      }
+      rejectSilent(new InteractionRequiredAuthError('interaction_required'))
+      expect(await onedrive.currentAccount()).toBeUndefined()
+      expect(JSON.parse(snapshots.at(-1)!.startupDiagnostics!).automaticRecoverySkipReason)
+        .toBe(state === 'offline' ? 'currently-offline' : 'currently-hidden')
       expect(msal.loginRedirect).not.toHaveBeenCalled()
     })
 
@@ -402,6 +438,7 @@ describe('installed iPhone Microsoft authorization', () => {
         status: 'reconnect-required',
         error: expect.stringMatching(/interaction_required[\s\S]*recovery was cancelled/)
       })
+      expect(JSON.parse(snapshots.at(-1)!.startupDiagnostics!).automaticRecoverySkipReason).toBe('user-interaction')
       expect(await readMicrosoftAuthState()).toHaveProperty('coldStartRecovery')
 
       msal.loginRedirect.mockResolvedValueOnce(undefined)
@@ -414,8 +451,9 @@ describe('installed iPhone Microsoft authorization', () => {
       const { rememberMicrosoftConnection } = await import('../db')
       await rememberMicrosoftConnection('person@example.com')
       Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
-      const { onedrive } = await observeAuth()
+      const { onedrive, snapshots } = await observeAuth()
       await onedrive.currentAccount()
+      expect(JSON.parse(snapshots.at(-1)!.startupDiagnostics!).automaticRecoverySkipReason).toBe('initially-hidden')
       Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
       document.dispatchEvent(new Event('visibilitychange'))
       await onedrive.retryAuthRestore()
@@ -441,7 +479,34 @@ describe('installed iPhone Microsoft authorization', () => {
       await rememberMicrosoftConnection('person@example.com')
       const onedrive = await import('../onedrive')
       await onedrive.currentAccount()
-      onedrive.subscribeAuth(() => {})
+      const snapshots: AuthSnapshot[] = []
+      onedrive.subscribeAuth((snapshot) => snapshots.push(snapshot))
+      expect(JSON.parse(snapshots.at(-1)!.startupDiagnostics!).automaticRecoverySkipReason).toBe('startup-not-requested')
+      expect(msal.loginRedirect).not.toHaveBeenCalled()
+    })
+
+    it('records a missing retained login hint without requesting navigation', async () => {
+      const { rememberMicrosoftConnection } = await import('../db')
+      await rememberMicrosoftConnection()
+      const { onedrive, snapshots } = await observeAuth()
+      expect(await onedrive.currentAccount()).toBeUndefined()
+      expect(JSON.parse(snapshots.at(-1)!.startupDiagnostics!)).toMatchObject({
+        outcome: 'reconnect-required', automaticRedirect: 'not-attempted',
+        automaticRecoverySkipReason: 'missing-login-hint'
+      })
+      expect(msal.loginRedirect).not.toHaveBeenCalled()
+    })
+
+    it('records a denied guard claim without requesting navigation', async () => {
+      const store = await import('../db')
+      await store.rememberMicrosoftConnection('person@example.com')
+      vi.spyOn(store, 'claimMicrosoftColdStartRecovery').mockResolvedValue(false)
+      const { onedrive, snapshots } = await observeAuth()
+      expect(await onedrive.currentAccount()).toBeUndefined()
+      expect(JSON.parse(snapshots.at(-1)!.startupDiagnostics!)).toMatchObject({
+        outcome: 'reconnect-required', automaticRedirect: 'not-attempted',
+        automaticRecoverySkipReason: 'guard-claim-denied'
+      })
       expect(msal.loginRedirect).not.toHaveBeenCalled()
     })
 
@@ -488,6 +553,7 @@ describe('installed iPhone Microsoft authorization', () => {
       expect(snapshots.at(-1)).toMatchObject({
         status: 'reconnect-required', error: expect.stringMatching(/interaction_required[\s\S]*guard unavailable/)
       })
+      expect(JSON.parse(snapshots.at(-1)!.startupDiagnostics!).automaticRecoverySkipReason).toBe('recovery-start-failed')
       expect(msal.loginRedirect).not.toHaveBeenCalled()
     })
   })
@@ -529,7 +595,8 @@ describe('installed iPhone Microsoft authorization', () => {
       expect(JSON.parse(serialized!)).toMatchObject({
         msalKeyCookieAtStart: false, cachedAccountBeforeRedirectHandling: false,
         cacheCounts: { encrypted: null, expiredEncrypted: 3, unencrypted: 0 },
-        silentMethod: 'ssoSilent', silentFailure: 'interaction_required', automaticRedirect: 'started'
+        silentMethod: 'ssoSilent', silentFailure: 'interaction_required', automaticRedirect: 'started',
+        automaticRecoverySkipReason: null
       })
       expect(serialized).not.toContain('private')
       expect(serialized).not.toContain('person@example.com')
@@ -571,7 +638,9 @@ describe('installed iPhone Microsoft authorization', () => {
       msal.initialize.mockRejectedValueOnce(new Error('initialization failed'))
       const failure = await observeAuth()
       await vi.waitFor(() => expect(failure.snapshots.at(-1)?.status).toBe('error'))
-      expect(JSON.parse(failure.snapshots.at(-1)!.startupDiagnostics!).outcome).toBe('error')
+      expect(JSON.parse(failure.snapshots.at(-1)!.startupDiagnostics!)).toMatchObject({
+        outcome: 'error', automaticRecoverySkipReason: 'startup-error'
+      })
       expect(msal.removePerformanceCallback).toHaveBeenCalledTimes(2)
     })
 
@@ -581,6 +650,8 @@ describe('installed iPhone Microsoft authorization', () => {
       msal.ssoSilent.mockRejectedValueOnce(new Error('network failed'))
       const { onedrive, snapshots } = await observeAuth()
       await onedrive.currentAccount()
+      expect(JSON.parse(snapshots.at(-1)!.startupDiagnostics!).automaticRecoverySkipReason)
+        .toBe('silent-error-not-interactive')
       msal.ssoSilent.mockResolvedValueOnce({ account: account() })
       await expect(onedrive.retryAuthRestore()).resolves.toBe(true)
       expect(msal.addPerformanceCallback).toHaveBeenCalledOnce()
@@ -599,7 +670,7 @@ describe('installed iPhone Microsoft authorization', () => {
       const { onedrive, snapshots } = await observeAuth()
       expect(await onedrive.currentAccount()).toEqual(account())
       expect(JSON.parse(snapshots.at(-1)!.startupDiagnostics!)).toMatchObject({
-        outcome: 'connected', persistence: 'unavailable'
+        outcome: 'connected', persistence: 'unavailable', automaticRecoverySkipReason: null
       })
       expect(JSON.stringify(warn.mock.calls)).not.toContain('private-storage-error')
       expect(msal.loginRedirect).not.toHaveBeenCalled()
@@ -636,7 +707,7 @@ describe('installed iPhone Microsoft authorization', () => {
       const { onedrive, snapshots } = await observeAuth()
       expect(await onedrive.currentAccount()).toBeUndefined()
       expect(JSON.parse(snapshots.at(-1)!.startupDiagnostics!)).toMatchObject({
-        outcome: 'reconnect-required', automaticRedirect: 'cancelled'
+        outcome: 'reconnect-required', automaticRedirect: 'cancelled', automaticRecoverySkipReason: 'user-interaction'
       })
       expect(localStorage.getItem('last-time-auth-startup-pending')).toBeNull()
       expect(await store.readMicrosoftAuthState()).toHaveProperty('coldStartRecovery')

@@ -1,6 +1,6 @@
 import { BrowserCacheLocation, BrowserPerformanceClient, PublicClientApplication, type AccountInfo, type Configuration } from '@azure/msal-browser'
 import packageMetadata from '../package.json'
-import { AuthStartupDiagnostics, clearAuthStartupDiagnostics } from './authStartupDiagnostics'
+import { AuthStartupDiagnostics, clearAuthStartupDiagnostics, type RecoverySkipReason } from './authStartupDiagnostics'
 import { isIphoneStandalonePwa, isIosStandalonePwa, resolveCommonAuthority, rootRedirectUri, selectAccount } from './auth'
 import {
   acquireMicrosoftToken,
@@ -107,9 +107,24 @@ async function initialize(allowColdStartRecovery = false) {
           console.warn('Unable to observe MSAL startup performance.')
         }
       }
+      const onlineAtStart = navigator.onLine
+      const visibleAtStart = document.visibilityState === 'visible'
       let recoveryAllowed = iphone && firstLoad && allowColdStartRecovery &&
-        navigator.onLine && document.visibilityState === 'visible'
-      const cancelRecovery = () => { recoveryAllowed = false }
+        onlineAtStart && visibleAtStart
+      let recoveryBlockReason: RecoverySkipReason | undefined = !firstLoad
+        ? 'not-initial-startup' : !allowColdStartRecovery
+          ? 'startup-not-requested' : !onlineAtStart
+            ? 'initially-offline' : !visibleAtStart ? 'initially-hidden' : undefined
+      const cancelRecovery = (event: Event) => {
+        if (recoveryAllowed) {
+          recoveryBlockReason = event.type === 'visibilitychange'
+            ? document.visibilityState === 'visible' ? 'visibility-visible' : 'visibility-hidden'
+            : event.type === 'pagehide' ? 'page-hidden'
+              : event.type === 'online' || event.type === 'offline'
+                ? 'connectivity-changed' : 'user-interaction'
+        }
+        recoveryAllowed = false
+      }
       const cancellationEvents: Array<[EventTarget, string]> = [
         [document, 'pointerdown'], [document, 'keydown'], [document, 'input'],
         [document, 'click'], [document, 'visibilitychange'],
@@ -131,7 +146,11 @@ async function initialize(allowColdStartRecovery = false) {
           ...(iphone ? {
             coldStartRecovery: {
               canRedirect: () => recoveryAllowed && navigator.onLine &&
-                document.visibilityState === 'visible'
+                document.visibilityState === 'visible',
+              getBlockReason: () => recoveryBlockReason ?? (
+                !navigator.onLine ? 'currently-offline'
+                  : document.visibilityState !== 'visible' ? 'currently-hidden' : 'startup-ineligible'
+              )
             }
           } : {})
         })
@@ -143,7 +162,10 @@ async function initialize(allowColdStartRecovery = false) {
         publishAuth(snapshot)
         return instance
       } catch (error) {
-        if (diagnostics) startupDiagnostics = diagnostics.finish('error')
+        if (diagnostics) {
+          diagnostics.recordRecoverySkip('startup-error')
+          startupDiagnostics = diagnostics.finish('error')
+        }
         const message = error instanceof Error ? error.message : String(error)
         publishAuth({ ready: true, status: 'error', error: message })
         throw error

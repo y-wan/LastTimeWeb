@@ -2,11 +2,11 @@ import { expect, test } from '@playwright/test'
 import { translations } from '../src/i18n'
 
 const report = JSON.stringify({
-  schema: 1, appVersion: '1.0.10',
+  schema: 1, appVersion: '1.0.11',
   msalKeyCookieAtStart: true, cachedAccountBeforeRedirectHandling: false,
   cacheCounts: { encrypted: null, expiredEncrypted: null, unencrypted: null },
   silentMethod: 'acquireTokenSilent', silentFailure: null,
-  automaticRedirect: 'returned', outcome: 'connected',
+  automaticRedirect: 'returned', automaticRecoverySkipReason: null, outcome: 'connected',
   stagesMs: { initialize: 12, redirectResult: 89, silent: 8, redirectRoundTrip: 2345, returnedAuthProcessing: 109 },
   persistence: 'available',
   beforeRedirect: {

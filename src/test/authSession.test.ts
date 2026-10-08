@@ -10,6 +10,7 @@ import {
 } from '@azure/msal-browser'
 import { webcrypto } from 'node:crypto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { AuthStartupDiagnostics } from '../authStartupDiagnostics'
 import {
   acquireMicrosoftToken,
   initializeMicrosoftSession,
@@ -81,6 +82,61 @@ beforeEach(async () => {
 })
 
 describe('MSAL v4 cold-start restoration', () => {
+  describe('recovery blocker observation', () => {
+    it.each(['sso', 'cached'])('keeps the %s path and guard semantics unchanged while distinguishing blockers', async (path) => {
+      for (const [scenario, reason] of [
+        ['ineligible', 'initially-hidden'],
+        ['guarded', 'previous-attempt'],
+        ['missing-hint', 'missing-login-hint'],
+        ['claim-denied', 'guard-claim-denied'],
+        ['cancelled-after-claim', 'user-interaction']
+      ] as const) {
+        await db.microsoftAuthState.clear()
+        await rememberMicrosoftConnection(scenario === 'missing-hint' ? undefined : 'person@example.com')
+        if (scenario === 'guarded') await claimMicrosoftColdStartRecovery('person@example.com')
+        const failure = new InteractionRequiredAuthError('interaction_required')
+        const msal = client({
+          getAllAccounts: vi.fn().mockReturnValue(path === 'cached' ? [account()] : []),
+          ssoSilent: vi.fn().mockRejectedValue(failure),
+          acquireTokenSilent: vi.fn().mockRejectedValue(failure)
+        })
+        const canRedirect = vi.fn().mockReturnValue(scenario !== 'ineligible')
+        if (scenario === 'cancelled-after-claim') canRedirect.mockReturnValueOnce(true).mockReturnValueOnce(false)
+        const claim = vi.fn((hint: string, homeAccountId?: string) => scenario === 'claim-denied'
+          ? Promise.resolve(false) : claimMicrosoftColdStartRecovery(hint, homeAccountId))
+        const trace = new AuthStartupDiagnostics('1.0.11')
+        const snapshot = await coldStart(msal, {
+          store: { ...indexedDbStore(), claimColdStartRecovery: claim },
+          coldStartRecovery: {
+            canRedirect,
+            getBlockReason: () => scenario === 'ineligible' ? 'initially-hidden' : 'user-interaction'
+          },
+          diagnostics: trace
+        })
+        expect(snapshot).toMatchObject({ ready: true, status: 'reconnect-required' })
+        expect(JSON.parse(trace.finish('reconnect-required'))).toMatchObject({
+          automaticRedirect: 'not-attempted', automaticRecoverySkipReason: reason,
+          silentMethod: path === 'cached' ? 'acquireTokenSilent' : 'ssoSilent'
+        })
+        expect(canRedirect).toHaveBeenCalledTimes(scenario === 'cancelled-after-claim' ? 2 : 1)
+        expect(claim).toHaveBeenCalledTimes(['claim-denied', 'cancelled-after-claim'].includes(scenario) ? 1 : 0)
+        expect(msal.loginRedirect).not.toHaveBeenCalled()
+        if (['guarded', 'cancelled-after-claim'].includes(scenario)) {
+          expect(await readMicrosoftAuthState()).toHaveProperty('coldStartRecovery')
+        } else {
+          expect(await readMicrosoftAuthState()).not.toHaveProperty('coldStartRecovery')
+        }
+      }
+    })
+
+    it('retains compatibility with a caller that does not supply a reason provider', async () => {
+      await rememberMicrosoftConnection('person@example.com')
+      const trace = new AuthStartupDiagnostics('1.0.11')
+      await coldStart(client(), { coldStartRecovery: { canRedirect: () => false }, diagnostics: trace })
+      expect(JSON.parse(trace.finish('reconnect-required')).automaticRecoverySkipReason).toBe('startup-ineligible')
+    })
+  })
+
   it('restores a cached account before attempting network recovery', async () => {
     const cached = account()
     const msal = client({ getAllAccounts: vi.fn().mockReturnValue([cached]) })

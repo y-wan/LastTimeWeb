@@ -7,7 +7,7 @@ import {
   type SsoSilentRequest
 } from '@azure/msal-browser'
 import { selectAccount } from './auth'
-import type { AuthStartupDiagnostics } from './authStartupDiagnostics'
+import type { AuthStartupDiagnostics, RecoverySkipReason } from './authStartupDiagnostics'
 import type { MicrosoftAuthStateRecord } from './types'
 
 export type AuthStatus = 'checking' | 'restoring' | 'connected' | 'disconnected' | 'reconnect-required' | 'restore-failed' | 'error'
@@ -62,7 +62,10 @@ export async function initializeMicrosoftSession(input: {
   scopes: string[]
   online: boolean
   onRestoring?: () => void
-  coldStartRecovery?: { canRedirect: () => boolean }
+  coldStartRecovery?: {
+    canRedirect: () => boolean
+    getBlockReason?: () => RecoverySkipReason
+  }
   diagnostics?: AuthStartupDiagnostics
 }): Promise<AuthSnapshot> {
   const { client, store, scopes, online, onRestoring, coldStartRecovery, diagnostics } = input
@@ -89,6 +92,7 @@ export async function initializeMicrosoftSession(input: {
   const account = selectAccount(redirectResult?.account, client.getActiveAccount(), client.getAllAccounts())
 
   if (redirectError && (coldStartRecovery || !account)) {
+    diagnostics?.recordRecoverySkip('redirect-callback-error')
     return {
       ready: true,
       status: priorConnection ? 'reconnect-required' : 'error',
@@ -96,6 +100,7 @@ export async function initializeMicrosoftSession(input: {
     }
   }
   if (redirectResult?.state === COLD_START_RECOVERY_STATE && !priorConnection?.coldStartRecovery) {
+    diagnostics?.recordRecoverySkip('missing-recovery-state')
     client.setActiveAccount(null)
     return {
       ready: true,
@@ -113,6 +118,7 @@ export async function initializeMicrosoftSession(input: {
       ? recovery.homeAccountId !== restored.homeAccountId
       : !priorConnection?.loginHint ||
         priorConnection.loginHint.trim().toLowerCase() !== restored.username.trim().toLowerCase())) {
+      diagnostics?.recordRecoverySkip('account-mismatch')
       client.setActiveAccount(null)
       return {
         ready: true,
@@ -141,16 +147,22 @@ export async function initializeMicrosoftSession(input: {
       status: error instanceof InteractionRequiredAuthError ? 'reconnect-required' : 'restore-failed',
       error: errorMessage(error)
     }
-    if (!(error instanceof InteractionRequiredAuthError) ||
-      !online || !coldStartRecovery?.canRedirect() || redirectResult ||
-      priorConnection?.coldStartRecovery || !priorConnection?.loginHint) {
+    const skip = (reason: RecoverySkipReason) => {
+      diagnostics?.recordRecoverySkip(reason)
       return failed
     }
+    const skipIneligible = () => skip(coldStartRecovery?.getBlockReason?.() ?? 'startup-ineligible')
+    if (!(error instanceof InteractionRequiredAuthError)) return skip('silent-error-not-interactive')
+    if (!online) return skip('offline')
+    if (!coldStartRecovery?.canRedirect()) return skipIneligible()
+    if (redirectResult) return skip('redirect-result-present')
+    if (priorConnection?.coldStartRecovery) return skip('previous-attempt')
+    if (!priorConnection?.loginHint) return skip('missing-login-hint')
     try {
-      if (!await store.claimColdStartRecovery(priorConnection.loginHint, expected?.homeAccountId) ||
-        !coldStartRecovery.canRedirect()) {
-        return failed
+      if (!await store.claimColdStartRecovery(priorConnection.loginHint, expected?.homeAccountId)) {
+        return skip('guard-claim-denied')
       }
+      if (!coldStartRecovery.canRedirect()) return skipIneligible()
       onRestoring?.()
       await client.loginRedirect({
         scopes,
@@ -161,6 +173,7 @@ export async function initializeMicrosoftSession(input: {
         onRedirectNavigate: () => {
           if (diagnostics && coldStartRecovery.canRedirect()) diagnostics.beforeNavigation()
           if (!coldStartRecovery.canRedirect()) {
+            skipIneligible()
             diagnostics?.cancelNavigation()
             throw new Error('Automatic Microsoft recovery was cancelled because the app is no longer idle at startup.')
           }
@@ -169,6 +182,7 @@ export async function initializeMicrosoftSession(input: {
       })
       return { ready: false, status: 'restoring' }
     } catch (recoveryError) {
+      diagnostics?.recordRecoverySkip('recovery-start-failed')
       diagnostics?.cancelNavigation()
       return {
         ready: true,
@@ -192,6 +206,7 @@ export async function initializeMicrosoftSession(input: {
   }
 
   if (!online) {
+    diagnostics?.recordRecoverySkip('offline')
     return { ready: true, status: 'reconnect-required', offline: true }
   }
 
