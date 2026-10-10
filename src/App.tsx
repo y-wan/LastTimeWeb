@@ -725,7 +725,7 @@ export default function App() {
           </section>
         </div>}
       </main>}
-      {!overlayOpen && <nav>
+      {!overlayOpen && <nav data-auth-recovery-safe>
         <button className={tab === 'events' ? 'active' : ''} onClick={() => setTab('events')}><EventIcon name="clock" /><span>{t('events')}</span></button>
         <button className={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}><MaterialIcon name="settings" /><span>{t('settings')}</span></button>
       </nav>}

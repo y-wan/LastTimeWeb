@@ -339,9 +339,65 @@ describe('installed iPhone Microsoft authorization', () => {
       expect(msal.loginRedirect).toHaveBeenCalledOnce()
     })
 
+    it.each(['pointerdown', 'keydown', 'click'])(
+      'keeps startup recovery eligible after %s without starting a data action', async (event) => {
+        const { rememberMicrosoftConnection } = await import('../db')
+        await rememberMicrosoftConnection('person@example.com')
+        let rejectSilent!: (error: unknown) => void
+        msal.ssoSilent.mockImplementation(() => new Promise((_resolve, reject) => { rejectSilent = reject }))
+        msal.loginRedirect.mockImplementation(async (request: RedirectRequest) => {
+          request.onRedirectNavigate?.('https://login.microsoftonline.com/authorize')
+        })
+        const { onedrive, snapshots } = await observeAuth()
+        await vi.waitFor(() => expect(msal.ssoSilent).toHaveBeenCalledOnce())
+        const content = document.createElement('div')
+        content.innerHTML = '<nav data-auth-recovery-safe><button><span>Settings</span></button></nav><p>Last recorded yesterday</p>'
+        document.body.append(content)
+        try {
+          for (const target of content.querySelectorAll('span, p')) {
+            target.dispatchEvent(new Event(event, { bubbles: true }))
+          }
+          if (event !== 'click') {
+            const action = document.createElement('button')
+            content.append(action)
+            action.dispatchEvent(new Event(event, { bubbles: true }))
+          }
+          document.dispatchEvent(new Event(event, { bubbles: true }))
+          rejectSilent(new InteractionRequiredAuthError('interaction_required'))
+          expect(await onedrive.currentAccount()).toBeUndefined()
+          expect(msal.loginRedirect).toHaveBeenCalledOnce()
+          expect(JSON.parse(snapshots.at(-1)!.startupDiagnostics!)).toMatchObject({
+            automaticRecoverySkipReason: null, automaticRedirect: 'started'
+          })
+        } finally {
+          content.remove()
+        }
+      }
+    )
+
+    it.each(['button', 'input', 'label', 'a'])(
+      'still cancels startup recovery before a %s action', async (tag) => {
+        const { rememberMicrosoftConnection } = await import('../db')
+        await rememberMicrosoftConnection('person@example.com')
+        let rejectSilent!: (error: unknown) => void
+        msal.ssoSilent.mockImplementation(() => new Promise((_resolve, reject) => { rejectSilent = reject }))
+        const { onedrive, snapshots } = await observeAuth()
+        await vi.waitFor(() => expect(msal.ssoSilent).toHaveBeenCalledOnce())
+        const control = document.createElement(tag)
+        document.body.append(control)
+        try {
+          control.dispatchEvent(new Event('click', { bubbles: true }))
+          rejectSilent(new InteractionRequiredAuthError('interaction_required'))
+          await onedrive.currentAccount()
+          expect(msal.loginRedirect).not.toHaveBeenCalled()
+          expect(JSON.parse(snapshots.at(-1)!.startupDiagnostics!).automaticRecoverySkipReason).toBe('user-interaction')
+        } finally {
+          control.remove()
+        }
+      }
+    )
+
     it.each([
-      ['pointerdown', 'user-interaction'],
-      ['keydown', 'user-interaction'],
       ['input', 'user-interaction'],
       ['click', 'user-interaction'],
       ['visibilitychange', 'visibility-hidden'],
@@ -367,6 +423,11 @@ describe('installed iPhone Microsoft authorization', () => {
           document.dispatchEvent(new Event('visibilitychange'))
         } else if (['pagehide', 'online', 'offline'].includes(event)) {
           window.dispatchEvent(new Event(event))
+        } else if (event === 'click') {
+          const action = document.createElement('button')
+          document.body.append(action)
+          action.dispatchEvent(new Event('click', { bubbles: true }))
+          action.remove()
         } else {
           document.dispatchEvent(new Event(event, { bubbles: true }))
         }
@@ -389,7 +450,7 @@ describe('installed iPhone Microsoft authorization', () => {
       msal.acquireTokenSilent.mockImplementation(() => new Promise((_resolve, reject) => { rejectSilent = reject }))
       const { onedrive } = await observeAuth()
       await vi.waitFor(() => expect(msal.acquireTokenSilent).toHaveBeenCalledOnce())
-      document.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+      document.dispatchEvent(new Event('input', { bubbles: true }))
       rejectSilent(new InteractionRequiredAuthError('interaction_required'))
       expect(await onedrive.currentAccount()).toBeUndefined()
       expect(msal.loginRedirect).not.toHaveBeenCalled()
@@ -583,13 +644,13 @@ describe('installed iPhone Microsoft authorization', () => {
       msal.ssoSilent.mockResolvedValueOnce({ account: account() })
       await expect(onedrive.retryAuthRestore()).resolves.toBe(true)
       expect(JSON.parse(localStorage.getItem(AUTH_STARTUP_BASELINE_KEY)!)).toMatchObject({
-        schema: 1, appVersion: '1.0.12'
+        schema: 1, appVersion: '1.0.13'
       })
       localStorage.removeItem(AUTH_STARTUP_BASELINE_KEY)
       vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('private-sync-network-error'))
       await expect(onedrive.synchronize()).rejects.toThrow('private-sync-network-error')
       expect(JSON.parse(localStorage.getItem(AUTH_STARTUP_BASELINE_KEY)!)).toMatchObject({
-        schema: 1, appVersion: '1.0.12'
+        schema: 1, appVersion: '1.0.13'
       })
       expect(localStorage.getItem(AUTH_STARTUP_BASELINE_KEY)).not.toContain('private')
       localStorage.removeItem(AUTH_STARTUP_BASELINE_KEY)
