@@ -117,6 +117,9 @@ async function initialize(allowColdStartRecovery = false) {
           ? 'startup-not-requested' : !onlineAtStart
             ? 'initially-offline' : !visibleAtStart ? 'initially-hidden' : undefined
       const cancelRecovery = (event: Event) => {
+        if (event.type === 'click' && (!(event.target instanceof Element) ||
+          event.target.closest('[data-auth-recovery-safe]') ||
+          !event.target.closest('button, a, input, textarea, select, label, [role="button"], [contenteditable]'))) return
         if (recoveryAllowed) {
           recoveryBlockReason = event.type === 'visibilitychange'
             ? document.visibilityState === 'visible' ? 'visibility-visible' : 'visibility-hidden'
@@ -127,7 +130,7 @@ async function initialize(allowColdStartRecovery = false) {
         recoveryAllowed = false
       }
       const cancellationEvents: Array<[EventTarget, string]> = [
-        [document, 'pointerdown'], [document, 'keydown'], [document, 'input'],
+        [document, 'input'],
         [document, 'click'], [document, 'visibilitychange'],
         [window, 'pagehide'], [window, 'online'], [window, 'offline']
       ]
